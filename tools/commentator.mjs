@@ -22,6 +22,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, FAMILY, BOT } from '../js/config.js';
 import { fetchLive, gameState, gradeEntry, indexGames, fmtHalf } from '../js/live.js';
 import { buildModel } from '../js/model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from '../js/sim.js';
+import { buildBrief } from '../js/brief.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SANDBOX = path.join(ROOT, '.commentator-sandbox');
@@ -33,6 +34,9 @@ const MIN_GAP_S = 120, MAX_PER_HOUR = 10, MAX_PER_GAME = 4;
 const DRY = process.argv.includes('--dry-run');   // print instead of posting
 const FORCE_WHATIF = DRY && process.argv.includes('--force-whatif');   // test only: ignore game-state gating
 const FORCE_PREVIEW = DRY && process.argv.includes('--force-preview'); // test only: treat picks as complete
+// test only: answer one question as if a family member asked it:  --ask "what if Georgia covers?" --as jamie
+const TEST_ASK = DRY && process.argv.includes('--ask') ? process.argv[process.argv.indexOf('--ask') + 1] : null;
+const TEST_AS = DRY && process.argv.includes('--as') ? process.argv[process.argv.indexOf('--as') + 1] : 'jamie';
 const TEST_PICKS = DRY && process.argv.includes('--test-picks') ? process.argv[process.argv.indexOf('--test-picks') + 1] : null;
 
 fs.mkdirSync(SANDBOX, { recursive: true });
@@ -50,12 +54,14 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSessio
 const dataset = async key => (await sb.from('datasets').select('value').eq('key', key).maybeSingle()).data?.value ?? null;
 
 let PRONOUNS = {};
+let HISTORY = null;
 async function loadPool() {
   const settings = (await dataset('settings')) || {};
   const week = await dataset(`week${settings.currentWeek}`);
   const roster = (await dataset('roster')) || {};
   const league = await dataset('league');
   PRONOUNS = (await dataset('pronouns')) || {};
+  HISTORY = await dataset('history');
   const fam = FAMILY.map(f => ({ ...f, pool: roster[f.key] ?? f.pool }));
   if (TEST_PICKS && week) week.picks = { ...week.picks, ...JSON.parse(fs.readFileSync(TEST_PICKS, 'utf8')) };
   return { settings, week, fam, league };
@@ -140,9 +146,10 @@ function computeSim(P, live) {
     ...Object.entries(P.week.picks || {}).filter(([n]) => !famNames.has(n)).map(([name, p]) => ({ key: 'lg:' + name, label: name, group: 'league', name, conf: p.conf })),
   ];
   if (!ents.some(e => e.conf)) return null;
-  const sim = simulateWeek(P.week, live, P.week.research, ents, 5000, P.league ? fieldModel(P.league, P.week.week) : null);
+  const field = P.league ? fieldModel(P.league, P.week.week) : null;
+  const sim = simulateWeek(P.week, live, P.week.research, ents, 5000, field);
   const label = k => k === 'family' ? 'The family' : ents.find(e => e.key === k)?.label || k;
-  return { sim, ents, label, famNames };
+  return { sim, ents, label, famNames, field };
 }
 function whatIfEvents(P, live, C) {
   if (!C) return [];
@@ -261,6 +268,43 @@ function previewEvent(P, live, C) {
   return { id, pri: 9, kind: 'weekend kickoff preview', preview: true, facts: lines.join('\n') };
 }
 
+// ---------------------------------------------------------------- questions (@Commentator)
+// 1) a data brief of everything on the dashboard, 2) if the question is a hypothetical about game
+// results, Claude maps it to a scenario and the simulator re-runs the week with those results
+// locked in, 3) Claude answers from those numbers only.
+const HYPO = /\b(what if|what happens|if\b|suppose|covers?|wins?|loses?|beats?|scenario|need|needs)\b/i;
+async function parseScenario(P, live, question) {
+  if (!HYPO.test(question)) return [];
+  const open = P.week.games.filter(g => gameState(g, live, P.week.research).state !== 'post');
+  const list = open.map(g => `${g.fav_no}: ${g.fav} −${fmtHalf(g.spread)} vs ${g.dog} +${fmtHalf(g.spread)}`).join('\n');
+  const sys = 'You convert football-pool questions into scenarios. Output JSON only, no prose.';
+  const prompt = `Unfinished games (fav_no: favorite −spread vs underdog +spread):\n${list}\n\nQuestion: "${question}"\n\nIf the question asks what happens under specific game results, output {"scenario":[{"fav_no":<number>,"fav_covers":true|false}, ...]} using only games from the list. In this pool a team "winning" or "covering" means covering the spread; the underdog covering means fav_covers false. If the question isn't about hypothetical results of specific games, output {"scenario":[]}.`;
+  try {
+    const raw = await askClaude(prompt, sys);
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+    const ok = new Set(open.map(g => g.fav_no));
+    return (j.scenario || []).filter(s => ok.has(+s.fav_no) && typeof s.fav_covers === 'boolean').slice(0, 8).map(s => ({ fav_no: +s.fav_no, fav_covers: s.fav_covers }));
+  } catch { return []; }
+}
+function scenarioFacts(P, live, C, scenario) {
+  const forced = Object.fromEntries(scenario.map(s => [s.fav_no, s.fav_covers ? 1 : 0]));
+  const after = simulateWeek(P.week, live, P.week.research, C.ents, 5000, C.field, forced);
+  const before = C.sim; const pcS2 = x => (x == null ? 'n/a' : x < 0.005 ? '<1%' : x > 0.995 ? '>99%' : `${Math.round(x * 100)}%`);
+  const locked = scenario.map(s => { const g = P.week.games.find(x => x.fav_no === s.fav_no); return s.fav_covers ? `${g.fav} −${fmtHalf(g.spread)} covers` : `${g.dog} +${fmtHalf(g.spread)} covers`; }).join('; ');
+  const rows = before.entries.filter(e => e.picked && e.group !== 'league').map(e => {
+    const b = after.entries.find(x => x.key === e.key); const lab = C.label(e.key);
+    return `${lab}: expected ${e.mean.toFixed(1)} → ${b.mean.toFixed(1)}`
+      + (e.pWin != null ? `; win the family ${pcS2(e.pWin)} → ${pcS2(b.pWin)}` : '')
+      + (e.league ? `; top-10 league week ${pcS2(e.league.pTop10)} → ${pcS2(b.league.pTop10)}` : '');
+  });
+  const h2h = []; for (const [a, m] of Object.entries(before.h2h || {})) for (const [b, p] of Object.entries(m)) if (a < b && after.h2h?.[a]?.[b] != null) h2h.push(`${C.label(a)} beats ${C.label(b)} ${pcS2(p)} → ${pcS2(after.h2h[a][b])}`);
+  const fvl = before.familyVsLeague && after.familyVsLeague ? `Family beats the league average ${pcS2(before.familyVsLeague.pFamAhead)} → ${pcS2(after.familyVsLeague.pFamAhead)}.` : '';
+  return `SCENARIO (5,000 simulated weeks re-run with these results locked in: ${locked}). Now → under the scenario:\n${rows.join('\n')}${h2h.length ? '\nHead to head: ' + h2h.join('; ') : ''}${fvl ? '\n' + fvl : ''}`;
+}
+const QA_SYSTEM = () => SYSTEM
+  .replace('- Write ONE chat message, 1-2 sentences, at most 240 characters.', '- Answer the question in ONE chat message, 1-3 sentences, at most 450 characters. Lead with the direct answer and the key number(s), then a bit of flavor. If the DATA BRIEF and SCENARIO don\'t contain the answer, say so briefly instead of guessing.')
+  .replace('- Use ONLY the facts provided.', '- Use ONLY the facts in the DATA BRIEF and SCENARIO below the question.');
+
 async function mentions(me) {
   const { data } = await sb.from('messages').select('id, body, user_id, created_at').gt('id', state.lastMentionId).order('id').limit(50);
   const out = [];
@@ -365,11 +409,12 @@ async function tick() {
   const lastPost = state.posts.at(-1) || 0;
   if (state.posts.length >= MAX_PER_HOUR || now - lastPost < 30e3) return 45;
   // Tags get answered quickly; game commentary waits MIN_GAP_S between posts.
-  const ment = await mentions(me.id); save();
+  const ment = TEST_ASK ? (state.asked ? [] : [{ id: 0, body: '@Commentator ' + TEST_ASK, user_id: null, testAs: TEST_AS }]) : await mentions(me.id); save();
+  if (TEST_ASK) state.asked = true;
   if (!ment.length && now - lastPost < MIN_GAP_S * 1e3) return 45;
 
   // Mentions first, then the most important game events (bundled into one message).
-  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false;
+  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false;
   const pvE = fresh.find(e => e.preview);
   if (pvE && !ment.length) {
     prompt = `Write the WEEKEND KICKOFF PREVIEW for the family chat: hype everyone up for the weekend's storylines. Cover the family race, each of us vs the league, and the family vs the league, plus the must-watch games by day. Picks are already locked in, so don't tell anyone to make or change picks. Keep 'this week' and 'season' numbers exactly as labeled. Use only these facts:\n${pvE.facts}\n\nWrite the message.`;
@@ -377,7 +422,15 @@ async function tick() {
     log('weekend preview: ready');
   } else if (ment.length) {
     const m = ment.at(-1);
-    prompt = `Someone tagged you in the chat. Recent chat:\n${await recentChat()}\n\nReply to the latest message that mentions @Commentator. Current pool context: ${events.slice(0, 3).map(e => e.facts).join(' ') || 'no family games live right now.'}`;
+    const { data: prof } = m.testAs ? { data: { first_name: m.testAs } } : await sb.from('profiles').select('first_name').eq('user_id', m.user_id).maybeSingle();
+    const asker = FAMILY.find(f => f.key === prof?.first_name)?.short || 'Someone';
+    const question = m.body.replace(/@commentator\b/ig, '').trim();
+    const brief = C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history: HISTORY }) : 'No picks loaded yet.';
+    const scenario = C ? await parseScenario(P, live, question) : [];
+    const scen = scenario.length ? scenarioFacts(P, live, C, scenario) : '';
+    if (scenario.length) log('scenario:', scenario.map(s => `${s.fav_no}:${s.fav_covers ? 'fav' : 'dog'}`).join(','));
+    prompt = `${asker} asked you in the family chat: "${question}"\n\nRecent chat for context:\n${await recentChat()}\n\nDATA BRIEF (ground truth; use these numbers exactly):\n${brief}${scen ? '\n\n' + scen : ''}\n\nAnswer ${asker}'s question.`;
+    system = QA_SYSTEM(); isQA = true;
     used = [];
     log('mention:', m.body.slice(0, 80));
   } else if (fresh.length) {
@@ -389,7 +442,7 @@ async function tick() {
   } else return anyLive ? 60 : 300;
 
   try {
-    const ask = p => isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : askClaude(p).then(t => clean(t));
+    const ask = p => isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system).then(t => clean(t, 600)) : askClaude(p).then(t => clean(t));
     let text = await ask(prompt);
     // Safety net: if a sentence names exactly one family member and uses the other gender's pronoun, rewrite once.
     const wrong = misgendered(text);

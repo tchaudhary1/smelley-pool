@@ -35,12 +35,13 @@ export function fieldModel(league, uptoWeek) {
 // entries: [{ key, label, group: 'family' | 'shadow' | 'league', name?, conf? }]
 //   - family entries without conf are simulated from the field model (for family-vs-league only)
 // field: result of fieldModel(); null skips the league lenses.
-export function simulateWeek(week, live, model, entries, N = 5000, field = null) {
+// forced: { [favPoolNo]: 1 | 0 } locks a game as "favorite covers" / "underdog covers" (for what-if questions).
+export function simulateWeek(week, live, model, entries, N = 5000, field = null, forced = null) {
   const games = week.games, idx = new Map(), pFav = [], decided = [];
   games.forEach((g, i) => {
     idx.set(g.fav_no, [i, 1]); idx.set(g.dog_no, [i, 0]);
     const st = gameState(g, live, model);
-    decided[i] = st.state === 'post' ? (st.margin > g.spread ? 1 : 0) : -1;
+    decided[i] = forced && forced[g.fav_no] != null ? (forced[g.fav_no] ? 1 : 0) : st.state === 'post' ? (st.margin > g.spread ? 1 : 0) : -1;
     pFav[i] = st.pFav ?? 0.5;
   });
   const E = entries.map(e => ({ ...e, legs: Object.entries(e.conf || {}).map(([c, no]) => { const h = idx.get(no); return h ? [h[0], h[1], +c] : null; }).filter(Boolean) }))
