@@ -22,7 +22,8 @@ export async function fetchLive(week) {
     const [sport, date] = k.split('|');
     const url = `https://site.api.espn.com/apis/site/v2/sports/football/${SPORT_PATH[sport]}/scoreboard?dates=${date}&limit=400${sport === 'college-football' ? '&groups=80' : ''}`;
     try {
-      const j = await (await fetch(url)).json();
+      // One retry: ESPN occasionally resets a connection.
+      const j = await fetch(url).then(r => r.json()).catch(() => new Promise(r => setTimeout(r, 1500)).then(() => fetch(url)).then(r => r.json()));
       for (const e of j.events || []) {
         const c = e.competitions[0];
         const st = c.status;
