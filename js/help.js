@@ -117,7 +117,7 @@ export const HELP = [
       <li>a live game swings a storyline: the family race, someone's shot at a top-10 league week, or the family against the league (these <b>what-ifs</b> come at most every 40 minutes);</li>
       <li>the first family game of the day is about to kick off (a preview of the day's biggest stakes);</li>
       <li>someone tags <b>@Commentator</b>. It usually replies within a minute or two.</li></ul>
-      <p>It uses names rather than he/she, sticks to the actual numbers, and teases the picks, not the people. It can only read the pool and post messages; it can't change picks or scores.</p>` },
+      <p>It uses everyone's correct pronouns, sticks to the actual numbers, and teases the picks, not the people. It can only read the pool and post messages; it can't change picks or scores.</p>` },
     { id: 'preview', title: 'The weekend kickoff preview', keys: 'preview weekend kickoff hype summary storylines', body: `
       <p>Once every family pick sheet and nearly all of the league's are loaded, the Commentator posts one longer hype message for the weekend: Thursday's results so far, the family race, the family consensus and the big family "civil war", the boldest and most contrarian picks, each of us against the league, the family against the league, the biggest swing games from Saturday through Monday, and the tiebreaker guesses. It posts once per week.</p>` },
     { id: 'quiet', title: 'Why is the Commentator quiet?', keys: 'quiet silent muted not posting offline', body: `
