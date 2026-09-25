@@ -443,7 +443,7 @@ nav.tabs { -webkit-mask-image: none; mask-image: none; scroll-behavior: smooth; 
 .matrix .rh-in { display: inline-flex; align-items: center; gap: 8px; }
 .matrix .rh-in small { display: block; font-size: 10.5px; color: var(--ink-3); font-weight: 500; }
 .matrix th.ch { text-align: center; }
-.matrix th.ch .av { display: block; margin: 0 auto 4px; }
+.matrix th.ch .av { display: grid; place-items: center; margin: 0 auto 4px; }
 .matrix th.ch .ch-name { display: block; text-transform: none; letter-spacing: 0; font-size: 12px; }
 .matrix tr.shadow-row td, .matrix tr.shadow-row th { font-style: italic; }
 @media (max-width: 640px) {
