@@ -475,3 +475,23 @@ nav.tabs { -webkit-mask-image: none; mask-image: none; scroll-behavior: smooth; 
 .arc-btns { display: flex; gap: 6px; }
 .btn.danger { color: var(--lose); border-color: color-mix(in srgb, var(--lose) 50%, var(--line-2)); }
 .arc-feed { max-height: 60vh; overflow-y: auto; padding: 0; }
+
+/* ---------- scouting reports + history ---------- */
+.plink { color: var(--gold); text-decoration: none; font-weight: 600; }
+.plink:hover { text-decoration: underline; }
+.sr-list { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
+.sr-list li { margin: 5px 0; line-height: 1.45; }
+.sr-row { display: grid; grid-template-columns: 130px 1fr 130px; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
+.sr-l { color: var(--ink-2); }
+.sr-bar { position: relative; height: 10px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--line); }
+.sr-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--slate); }
+.sr-bar b { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--gold); }
+.sr-v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; } .sr-v small { font-weight: 500; color: var(--ink-3); }
+table.nb td, table.nb th { padding: 7px 6px; }
+table.nb tr.me-row td { background: color-mix(in srgb, var(--gold) 14%, transparent); }
+.champs { display: grid; gap: 10px; }
+.champ { display: flex; flex-direction: column; } .champ b { font-size: 16px; } .champ small { color: var(--ink-3); font-size: 12px; }
+@media (max-width: 640px) {
+  .sr-row { grid-template-columns: 96px 1fr 104px; font-size: 12.5px; }
+  table.nb th:nth-child(5), table.nb td:nth-child(5), table.nb th:nth-child(8), table.nb td:nth-child(8) { display: none; }
+}

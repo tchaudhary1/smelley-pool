@@ -2,6 +2,8 @@ import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS } from './config.
 import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
 import { HELP } from './help.js';
+import { buildContext, scoutingReport, leagueLessons } from './profile.js';
+import { samePerson } from './names.js';
 import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
 import { buildModel } from './model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from './sim.js';
@@ -97,7 +99,7 @@ async function start() {
   if (!S.week) { $('#main').innerHTML = `<div class="empty">No data for this week yet.</div>`; return; }
   await Promise.all([refreshLive(), refreshSocial()]);
   db.subscribe(() => refreshSocial().then(() => { if (S.tab === 'talk') render(); }));
-  const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'admin', 'help'].includes(hash)) S.tab = hash;
+  const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(hash)) S.tab = hash;
   render(); schedule();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
 }
@@ -210,7 +212,7 @@ function render() {
   const activeTab = $('#tabs button.on');
   if (activeTab) { const nav = $('#tabs'); nav.scrollTo({ left: activeTab.offsetLeft - (nav.clientWidth - activeTab.offsetWidth) / 2, behavior: 'smooth' }); }
   setTimeout(() => S.tabEdges?.(), 400);
-  const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, admin: viewAdmin, help: viewHelp };
+  const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, history: viewHistory, admin: viewAdmin, help: viewHelp };
   (views[S.tab] || viewGameDay)();
 }
 function title(t, sub = '') { return `<div class="section-title"><h2>${t}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}</div>`; }
@@ -365,7 +367,7 @@ function viewStandings() {
     </div>`;
   $('#fOnly').onclick = () => { S.famOnly = true; viewStandings(); }; $('#fAll').onclick = () => { S.famOnly = false; viewStandings(); };
   $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
-  $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : openLeagueMember(tr.dataset.name));
+  $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : famOf(tr.dataset.name) ? openMember(famOf(tr.dataset.name).key) : openProfile(tr.dataset.name));
   $('#chStrip').onclick = () => openWeekSpread(T);
   $$('.cup-row').forEach(el => el.onclick = () => el.dataset.member ? openMember(el.dataset.member) : openLeagueMember(el.dataset.name));
 }
@@ -736,10 +738,11 @@ function openMember(key) {
         ${T.weeks ? `<h4>Weekly scores vs league average</h4><div class="chart" style="padding:0">${lineChart({ labels: Array.from({ length: T.weeks }, (_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
           series: [{ label: 'League avg', color: 'var(--ink-3)', values: leagueAvg, dash: '4 4' }, { label: f.short, color: f.color, values: weeks, width: 3 }] })}</div>
           ${row?.wrank ? `<div class="note">Weekly league ranks: ${row.wrank.map((r, i) => `W${i + 1} #${r}`).join(' · ')}</div>` : ''}` : ''}
+        ${f.pool ? `<p style="margin:12px 0 0"><a href="#" class="plink" data-profile="${esc(f.pool)}">📈 Scouting report: how ${esc(f.short)} picks, history and the neighborhood →</a></p>` : ''}
         <h4>Week ${S.week.week} card</h4>${picks}
       </div>`;
   };
-  const mount = m => { $$('[data-game]', m).forEach(el => el.onclick = ev => { if (ev.target.closest('.react')) return; openGame(+el.dataset.game); }); bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
+  const mount = m => { $$('[data-game]', m).forEach(el => el.onclick = ev => { if (ev.target.closest('.react')) return; openGame(+el.dataset.game); }); bindProfileLinks(m); bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
   openModal(draw(), { onMount: mount });
   modalRefresher = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };
 }
@@ -820,6 +823,130 @@ function viewHelp() {
   $('#hq').oninput = e => { S.helpQ = e.target.value; draw(); };
   $$('#htoc a').forEach(a => a.onclick = e => { e.preventDefault(); S.helpQ = ''; $('#hq').value = ''; draw();
     document.querySelector(`[data-group="${CSS.escape(a.dataset.g)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+}
+
+// ------------------------------------------------------------ HISTORY + SCOUTING REPORTS
+// Past seasons load on demand (the archive is ~450 KB), then every name can open a scouting report.
+async function ensureHistory() {
+  if (S.ctx) return S.ctx;
+  if (!S.histLoading) S.histLoading = (async () => {
+    const a2025 = await db.loadDataset('history2025').catch(() => null);
+    S.hist = a2025 ? { 2025: a2025 } : {};
+    S.ctx = buildContext({ archives: S.hist, league: S.league });
+    return S.ctx;
+  })();
+  return S.histLoading;
+}
+const pctS = x => (x == null ? '–' : `${Math.round(x * 100)}%`);
+const famOf = name => FAMILY.find(f => f.pool && (f.pool === name || samePerson(f.pool, name)));
+const nameLink = (name, extra = '') => `<a href="#" class="plink" data-profile="${esc(name)}">${esc(name)}</a>${extra}`;
+function bindProfileLinks(root = document) {
+  $$('[data-profile]', root).forEach(el => el.onclick = e => { e.preventDefault(); e.stopPropagation(); openProfile(el.dataset.profile); });
+}
+
+async function openProfile(name) {
+  openModal(`${modalHead('Scouting report', esc(name))}<div class="mb"><div class="empty">Crunching the numbers…</div></div>`);
+  modalRefresher = null;
+  const ctx = await ensureHistory();
+  const rep = scoutingReport(ctx, name);
+  const T = leagueTable(); const now = T.rows.find(r => r.name === name || samePerson(r.name, name));
+  const f = famOf(name);
+  const last = rep.seasons[0]; const m = last?.metrics; const P = last ? ctx.seasons[last.season].pooled : null; const Z = last ? ctx.seasons[last.season].spread : null;
+  const bar = (label, mine, typical, cover) => `<div class="sr-row"><div class="sr-l">${label}</div>
+      <div class="sr-bar"><i style="width:${Math.min(100, mine * 100)}%"></i><b style="left:${Math.min(100, typical * 100)}%" title="League typical ${pctS(typical)}"></b></div>
+      <div class="sr-v">${pctS(mine)}<small>${cover != null ? ` · covered ${pctS(cover)}` : ''}</small></div></div>`;
+  const tier = (label, s, base) => `<div class="stat-row"><span>${label}</span><span class="num">${s?.cover != null ? `${pctS(s.cover)} <span class="muted">of ${s.n} · league ${pctS(base)}</span>` : '–'}</span></div>`;
+  const nb = rep.neighborhood;
+  const nbRow = x => `<tr class="${x.name === nb.me.name ? 'me-row' : ''}"><td class="num">${x.tied ? 'T-' : ''}${x.rank}</td><td class="l">${x.name === nb.me.name ? `<b>${esc(x.name)}</b>` : nameLink(x.name)}</td>
+      <td class="num">${x.total}</td><td class="num muted">${x.name === nb.me.name ? '' : x.gap > 0 ? '+' + x.gap : x.gap === 0 ? 'tied' : x.gap}</td>
+      <td class="num">${x.lastSeason?.rank ?? '–'}</td><td class="num">${pctS(x.metrics?.cover)}</td><td class="num">${pctS(x.metrics?.dog.share)}</td><td class="num">${x.metrics ? (x.metrics.orderEdgePerWeek >= 0 ? '+' : '') + x.metrics.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`;
+  const weekly = last?.entry?.weeks || [];
+  const lgAvgW = last ? ctx.seasons[last.season].archive.entries[0].weeks.map((_, w) => { const v = ctx.seasons[last.season].archive.entries.map(e => e.weeks[w]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }) : [];
+  const thisWeek = S.week.picks?.[name] || (f && S.week.picks?.[f.pool]);
+  const lessonsLg = leagueLessons(ctx).filter(l => l.significant).slice(0, 3);
+  const html = `${modalHead(f ? `Scouting report · family` : 'Scouting report', `${f ? avatar(f) + ' ' : ''}${esc(name)}`)}<div class="mb">
+    <div class="kv">
+      <div><b>${now ? `${now.rankLabel}` : '–'}</b><span>This season (${now ? now.total + ' pts' : 'not ranked'})</span></div>
+      ${last?.entry ? `<div><b>#${last.entry.seasonRank ?? last.entry.guruRank}</b><span>${last.season} finish (of ${last.entries})</span></div>
+      <div><b>${last.weekly.mean.toFixed(1)}</b><span>${last.season} weekly avg (league ${last.weekly.leagueAvg.toFixed(1)})</span></div>` : ''}
+      ${m ? `<div><b>${pctS(m.cover)}</b><span>${last.season} picks covered (${m.n})</span></div>
+      <div><b>${m.orderEdgePerWeek >= 0 ? '+' : ''}${m.orderEdgePerWeek.toFixed(1)}</b><span>Points a week from confidence ordering</span></div>` : ''}
+      ${last?.bowls ? `<div><b>#${last.bowls.rank}</b><span>${last.season} bowl pool (${last.bowls.points} pts)</span></div>` : ''}
+    </div>
+    ${rep.quirks.length ? `<h4>What stands out</h4><ul class="sr-list">${rep.quirks.map(q => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
+    ${m ? `<h4>How they pick <span class="muted" style="text-transform:none;letter-spacing:0">(bar = share of picks · tick = league typical)</span></h4>
+      ${bar('Underdogs', m.dog.share, Z.dog.mu, m.dog.cover)}${bar('Home teams', m.home.share, Z.home.mu, m.home.cover)}${bar('NFL games', m.nfl.share, Z.nfl.mu, m.nfl.cover)}
+      ${bar('Big favorites (10+)', m.bigFav.share, Z.bigFav.mu, m.bigFav.cover)}${bar('Big underdogs (10+)', m.bigDog.share, Z.bigDog.mu, m.bigDog.cover)}${bar('Contrarian picks', m.contrarian.share, Z.contrarian.mu, m.contrarian.cover)}
+      <h4>By confidence</h4>${tier('High (8–10)', m.top, P.top.cover)}${tier('Middle (4–7)', m.mid, P.mid.cover)}${tier('Low (1–3)', m.low, P.low.cover)}${tier('Their 10s', m.tens, P.tens.cover)}` : ''}
+    ${weekly.some(v => v != null) ? `<h4>${last.season} week by week</h4><div class="chart" style="padding:0">${lineChart({ labels: weekly.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
+      series: [{ label: 'League avg', color: 'var(--ink-3)', values: lgAvgW, dash: '4 4' }, { label: name, color: f?.color || 'var(--gold)', values: weekly, width: 3 }] })}</div>
+      ${last.top4.length ? `<div class="note">Weekly top-4 finishes: ${last.top4.map(t => `Week ${t.week} (#${t.place})`).join(', ')}</div>` : ''}` : ''}
+    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th><th>${nb.season ?? ''} fin.</th><th>Cover</th><th>Dogs</th><th>Order</th></tr></thead>
+      <tbody>${[...nb.above, nb.me, ...nb.below].map(nbRow).join('')}</tbody></table></div>
+      ${rep.lessons.length ? `<h4>What separates them</h4><ul class="sr-list">${rep.lessons.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : ''}
+    ${lessonsLg.length ? `<h4>What worked league-wide in ${last?.season ?? ''}</h4><ul class="sr-list">${lessonsLg.map(l => `<li>${esc(l.text)}</li>`).join('')}</ul>` : ''}
+    ${thisWeek ? `<h4>This week's card</h4><div class="picks" style="gap:6px">${Object.entries(thisWeek.conf).sort((a, b) => b[0] - a[0]).map(([c, no]) => { const h = GB().get(no); return h ? `<span class="pk">${c} · ${esc(sideName(h.g, h.side))} ${sideSpread(h.g, h.side)}</span>` : ''; }).join('')}</div>` : ''}
+    <p class="note">${esc(rep.caveat)}</p>
+  </div>`;
+  const mEl = $('.modal'); if (!mEl) return;
+  mEl.innerHTML = html; bindProfileLinks(mEl); mEl.querySelector('[data-x]').onclick = closeModal;
+}
+
+// ---- History tab
+async function viewHistory() {
+  $('#main').innerHTML = `${title('History', 'Past seasons, rebuilt pick by pick from the commissioner’s files')}<div class="empty">Loading the archive…</div>`;
+  const ctx = await ensureHistory();
+  const yr = Object.keys(ctx.seasons).sort().pop();
+  if (!yr) { $('#main').innerHTML = `${title('History')}<div class="panel empty">No past seasons loaded yet.</div>`; return; }
+  const A = ctx.seasons[yr].archive; const n = A.entries.length;
+  const fam = FAMILY.filter(f => !f.shadow).map(f => ({ f, e: A.entries.find(e => f.pool && (e.name === f.pool || samePerson(e.name, f.pool))), rep: f.pool ? scoutingReport(ctx, f.pool) : null })).filter(x => x.e);
+  const aw = A.winners?.awards || {};
+  const champ = (k, label) => aw[k] ? `<div class="champ"><span class="muted">${label}</span><b>${nameLink(aw[k][0])}</b><small>${aw[k].slice(1, 4).map(x => esc(x)).join(' · ')}</small></div>` : '';
+  const famRows = fam.sort((a, b) => (a.e.seasonRank ?? 999) - (b.e.seasonRank ?? 999)).map(({ f, e, rep }) => { const s = rep.seasons.find(x => x.season === +yr);
+    return `<tr class="row" data-profile="${esc(e.name)}"><td class="l">${avatar(f)} ${esc(f.short)}</td><td class="num">#${e.seasonRank ?? '–'}</td><td class="num">${e.total}</td><td class="num">${s?.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s?.weekly.best ?? '–'}</td><td class="num">${s?.top4.length || 0}</td><td class="num">${s?.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s?.metrics?.cover)}</td></tr>`; }).join('');
+  const weeksN = 19; const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  const famNames = new Set(fam.map(x => x.e.name));
+  const famAvg = Array.from({ length: weeksN }, (_, w) => avg(fam.map(x => x.e.weeks[w]).filter(v => v != null)));
+  const lgAvg = Array.from({ length: weeksN }, (_, w) => avg(A.entries.filter(e => !famNames.has(e.name)).map(e => e.weeks[w]).filter(v => v != null)));
+  const beat = famAvg.filter((v, w) => v != null && lgAvg[w] != null && v > lgAvg[w]).length;
+  const bb = Array.from({ length: weeksN }, (_, w) => Math.max(...fam.map(x => x.e.weeks[w] ?? 0))).reduce((a, b) => a + b, 0);
+  const bbRank = 1 + A.entries.filter(e => (e.total ?? 0) > bb).length;
+  const lessons = leagueLessons(ctx, yr);
+  const weekOpts = A.weeks.map(w => `<option value="${w.week}">Week ${w.week}${w.picks ? '' : ' (no pick sheet)'}</option>`).join('');
+  $('#main').innerHTML = `${title(`${yr} season`, `${n} entries · every pick graded against ESPN final scores · tap any name for a scouting report`)}
+    <div class="grid two">
+      <div class="panel insight"><h3>🏆 Champions</h3><div class="champs">${champ('Guru Season', 'Season')}${champ('Guru Weeks 1-19', 'Weeks 1–19')}${champ('Bowls', 'Bowl pool')}</div></div>
+      <div class="panel insight"><h3>🏟️ The family vs the league</h3>
+        <div class="kv"><div><b>${beat} of ${famAvg.filter(v => v != null).length}</b><span>Weeks the family beat the league average</span></div>
+          <div><b>${bb} <span class="muted" style="font-size:13px">#${bbRank}</span></b><span>"Team Smelley" best-ball would have ranked</span></div></div>
+        <div class="chart" style="padding:0;margin-top:8px">${lineChart({ labels: famAvg.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 50, height: 140, series: [{ label: 'League', color: 'var(--ink-3)', values: lgAvg, dash: '4 4' }, { label: 'Family', color: 'var(--gold)', values: famAvg, width: 3 }] })}</div>
+        <div class="legend"><span><i style="background:var(--gold)"></i>Family average</span><span><i style="background:var(--ink-3)"></i>Rest of the league</span></div></div>
+    </div>
+    ${title('The family in ' + yr)}
+    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th><th>Finish</th><th>Wk pts</th><th>Avg</th><th>Best</th><th>Top-4s</th><th>Bowls</th><th>Cover</th></tr></thead><tbody>${famRows}</tbody></table></div>
+    ${title('What worked league-wide', `${yr}, all ${A.weeks.reduce((s, w) => s + (w.picks ? Object.keys(w.picks).length : 0), 0).toLocaleString()} cards · ★ = a real pattern, not noise`)}
+    <div class="panel insight">${lessons.map(l => `<div class="stat-row"><span>${l.significant ? '★ ' : ''}${esc(l.text)}</span></div>`).join('')}</div>
+    ${title('Week by week')}
+    <div class="filters"><select id="hWeek" class="search">${weekOpts}</select></div><div id="hWeekBody"></div>`;
+  const drawWeek = w => {
+    const W = A.weeks.find(x => x.week === w); const box = $('#hWeekBody');
+    const scores = A.entries.map(e => ({ name: e.name, s: e.weeks[w - 1] })).filter(x => x.s != null).sort((a, b) => b.s - a.s);
+    const rankOf = s => 1 + scores.filter(x => x.s > s).length;
+    const famLine = fam.map(({ f, e }) => { const s = e.weeks[w - 1]; return `<div class="stat-row"><span>${avatar(f)} ${nameLink(e.name)}</span><span class="num">${s ?? '–'} <span class="muted">${s != null ? '#' + rankOf(s) + ' of ' + scores.length : ''}</span></span></div>`; }).join('');
+    const top = (A.winners?.weeks?.[w] || []).slice(0, 4).map((x, i) => `${['🥇', '🥈', '🥉', '4th'][i]} ${nameLink(x)}`).join(' &nbsp; ');
+    const famPicks = W.picks ? fam.map(({ f, e }) => ({ f, p: W.picks[e.name] })).filter(x => x.p) : [];
+    const games = W.games.filter(g => famPicks.some(x => Object.values(x.p.conf).some(no => no === g.fav_no || no === g.dog_no)));
+    const gRow = g => { const on = s => famPicks.filter(x => Object.entries(x.p.conf).some(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))).map(x => { const c = Object.entries(x.p.conf).find(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))[0]; const won = g.favCovers != null && (s === 'fav') === g.favCovers; return `<span class="pk ${won ? 'won' : 'lost'}">${avatar(x.f)}${c}</span>`; }).join('');
+      return `<div class="panel game"><div class="side"><div class="team ${g.favCovers ? 'cover' : ''}"><span class="nm">${esc(g.fav)}</span><span class="sp">−${fmtHalf(g.spread)}</span></div><div class="picks">${on('fav')}</div></div>
+        <div class="mid"><div class="score">${g.final ? `${g.final.fav}–${g.final.dog}` : '–'}</div><div class="st">${esc(g.league || '')} · ${g.favCovers == null ? 'no result' : g.favCovers ? 'fav covered' : 'dog covered'}</div></div>
+        <div class="side r"><div class="team ${g.favCovers === false ? 'cover' : ''}"><span class="nm">${esc(g.dog)}</span><span class="sp">+${fmtHalf(g.spread)}</span></div><div class="picks">${on('dog')}</div></div></div>`; };
+    box.innerHTML = `<div class="grid two"><div class="panel insight"><h3>Family that week</h3>${famLine}</div><div class="panel insight"><h3>League's top 4</h3><p>${top || '–'}</p>
+        <p class="note">${W.games.length} games on the sheet; ${W.games.filter(g => g.favCovers === false).length} underdogs covered.</p></div></div>
+      ${W.picks ? `<h4 class="lg-h">Games with family picks</h4>${games.map(gRow).join('')}` : '<div class="panel empty">No pick sheet for this week, only scores.</div>'}`;
+    bindProfileLinks(box);
+  };
+  $('#hWeek').onchange = e => drawWeek(+e.target.value); drawWeek(A.weeks[0].week);
+  bindProfileLinks($('#main'));
 }
 
 // ------------------------------------------------------------ ADMIN (Tarun)

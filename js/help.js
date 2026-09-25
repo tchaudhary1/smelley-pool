@@ -88,6 +88,21 @@ export const HELP = [
       <li><b>Game tag:</b> tap the 🏈 chip to attach a game. Tapping the tag on a message opens that game's card.</li>
       <li><b>Reactions:</b> tap <b>＋🙂</b> under any message, or on a pick in a card, to react. Tap your reaction again to remove it.</li>
       <li>You can delete your own messages (the "delete" link next to your name).</li></ul>` },
+    { id: 'history', title: 'History (past seasons)', keys: 'history 2025 last year past season archive champions week by week bowls lessons', body: `
+      <p>The <b>History</b> tab rebuilds past seasons pick by pick from the commissioner's files, with every game graded against the final score. (For 2025, 98% of rebuilt cards match the official weekly scores exactly; the official scores always win.)</p>
+      <ul><li><b>Champions</b> for the season, weeks 1–19 and the bowl pool.</li>
+      <li><b>The family vs the league</b>: weeks the family beat the league average, and "Team Smelley" best-ball.</li>
+      <li><b>The family's season</b>: finish, points, average, best week, weekly top-4 finishes, bowl rank and cover rate. Tap a name for the full scouting report.</li>
+      <li><b>What worked league-wide</b>: patterns across every card in the league. ★ marks the ones big enough to be real rather than luck.</li>
+      <li><b>Week by week</b>: pick any week to see how the family scored and ranked, the league's top 4, and every game the family picked with the final score and who covered.</li></ul>` },
+    { id: 'scouting', title: 'Scouting reports (tap any name)', keys: 'scouting report profile player name tap analysis trends quirks neighborhood strategy', body: `
+      <p>Tap anyone's name (in Standings, History, or inside another report) to see how they pick:</p>
+      <ul><li><b>The headline numbers</b>: this season's rank, last season's finish, weekly average, cover rate, bowl rank, and how many points a week their confidence ordering adds or costs.</li>
+      <li><b>What stands out</b>: only the habits that are clearly unusual compared with the rest of the league.</li>
+      <li><b>How they pick</b>: underdogs, home teams, NFL, big favorites, big underdogs and contrarian picks, each against a gold tick for the league's typical rate, with how those picks did.</li>
+      <li><b>By confidence</b>: how their high, middle and low confidence picks (and their 10s) covered.</li>
+      <li><b>The neighborhood</b>: the players ranked just ahead of and behind them this season, and <b>what separates them</b>, including whether that difference actually paid off league-wide or is just style.</li></ul>
+      <p>These are patterns from one season of about 180 picks per person. Useful for thinking about strategy, not guarantees.</p>` },
     { id: 'cards', title: 'Pop-up cards', keys: 'card popup modal tap click details gauge what it means', body: `
       <p>A <b>game card</b> has the live score, a gauge showing which side is covering (and by how much), the live chance of covering, the last play, the pool line next to the current market line and the model's cover chances, who in the family is on each side, and <b>What it means for the race</b>: how that game moves the family race, the league race and the family-vs-league battle.</p>
       <p>A <b>person card</b> has their week (banked, max, expected), season total and percentile, a weekly chart against the league average, and every pick with its live status and chance to cover.</p>` },
@@ -120,7 +135,8 @@ export const HELP = [
       <p><b>Ask it anything about the pool.</b> It answers from the same live data as the dashboard: everyone's picks and live status, win odds, head-to-heads, league and season rankings, and the family against the league. Try:</p>
       <ul><li>"@Commentator how is the family doing against the league?"</li>
       <li>"@Commentator what if Georgia covers and Penn State doesn't?" (it re-runs the simulation with those results locked in)</li>
-      <li>"@Commentator what does Jamie need to win the week?"</li></ul>
+      <li>"@Commentator what does Jamie need to win the week?"</li>
+      <li>"@Commentator how does Wyatt Johnson pick?" or "who in the family is best with their 10s?" (it knows last season too)</li></ul>
       <p>If the answer isn't in the data, it says so rather than guessing.</p>
       <p>It uses everyone's correct pronouns, sticks to the actual numbers, and teases the picks, not the people. It can only read the pool and post messages; it can't change picks or scores.</p>` },
     { id: 'preview', title: 'The weekend kickoff preview', keys: 'preview weekend kickoff hype summary storylines', body: `

@@ -23,6 +23,8 @@ import { fetchLive, gameState, gradeEntry, indexGames, fmtHalf } from '../js/liv
 import { buildModel } from '../js/model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from '../js/sim.js';
 import { buildBrief } from '../js/brief.js';
+import { buildContext, scoutingReport, reportText, historySummary } from '../js/profile.js';
+import { samePerson } from '../js/names.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SANDBOX = path.join(ROOT, '.commentator-sandbox');
@@ -54,14 +56,14 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSessio
 const dataset = async key => (await sb.from('datasets').select('value').eq('key', key).maybeSingle()).data?.value ?? null;
 
 let PRONOUNS = {};
-let HISTORY = null;
+let ARCHIVE = null, ARCHIVE_AT = 0;
 async function loadPool() {
   const settings = (await dataset('settings')) || {};
   const week = await dataset(`week${settings.currentWeek}`);
   const roster = (await dataset('roster')) || {};
   const league = await dataset('league');
   PRONOUNS = (await dataset('pronouns')) || {};
-  HISTORY = await dataset('history');
+  if (!ARCHIVE_AT || Date.now() - ARCHIVE_AT > 30 * 60e3) { ARCHIVE = await dataset('history2025'); ARCHIVE_AT = Date.now(); }
   const fam = FAMILY.map(f => ({ ...f, pool: roster[f.key] ?? f.pool }));
   if (TEST_PICKS && week) week.picks = { ...week.picks, ...JSON.parse(fs.readFileSync(TEST_PICKS, 'utf8')) };
   return { settings, week, fam, league };
@@ -268,6 +270,20 @@ function previewEvent(P, live, C) {
   return { id, pri: 9, kind: 'weekend kickoff preview', preview: true, facts: lines.join('\n') };
 }
 
+// ---------------------------------------------------------------- people named in a question
+function namedPeople(P, question) {
+  const q = ' ' + question.toLowerCase().replace(/[^a-z0-9' ]/g, ' ') + ' ';
+  const out = [];
+  for (const f of P.fam) if (!f.shadow && f.pool && q.includes(' ' + f.short.toLowerCase() + ' ')) out.push(f.pool);
+  const names = new Set([...(P.league?.members || []).map(m => m.name), ...(ARCHIVE?.entries || []).map(e => e.name)]);
+  for (const n of names) {
+    const low = n.toLowerCase(); const last = low.split(' ').slice(-1)[0];
+    const lastUnique = [...names].filter(x => x.toLowerCase().endsWith(' ' + last)).length === 1 && last.length >= 4;
+    if (q.includes(' ' + low + ' ') || (lastUnique && q.includes(' ' + last + ' '))) if (!out.some(x => samePerson(x, n))) out.push(n);
+  }
+  return out.slice(0, 3);
+}
+
 // ---------------------------------------------------------------- questions (@Commentator)
 // 1) a data brief of everything on the dashboard, 2) if the question is a hypothetical about game
 // results, Claude maps it to a scenario and the simulator re-runs the week with those results
@@ -303,7 +319,8 @@ function scenarioFacts(P, live, C, scenario) {
 }
 const QA_SYSTEM = () => SYSTEM
   .replace('- Write ONE chat message, 1-2 sentences, at most 240 characters.', '- Answer the question in ONE chat message, 1-3 sentences, at most 450 characters. Lead with the direct answer and the key number(s), then a bit of flavor. If the DATA BRIEF and SCENARIO don\'t contain the answer, say so briefly instead of guessing.')
-  .replace('- Use ONLY the facts provided.', '- Use ONLY the facts in the DATA BRIEF and SCENARIO below the question.');
+  .replace('- Use ONLY the facts provided.', '- Use ONLY the facts in the DATA BRIEF and SCENARIO below the question.')
+  + `\n- Strategy talk: only suggest copying a habit if the brief shows it actually paid off (a league-wide pattern marked statistically meaningful, or a lean that "helped"). If a difference didn't matter league-wide, call it style, not a recipe. One season is a small sample; don't oversell.`;
 
 async function mentions(me) {
   const { data } = await sb.from('messages').select('id, body, user_id, created_at').gt('id', state.lastMentionId).order('id').limit(50);
@@ -348,14 +365,24 @@ function askClaude(prompt, system = SYSTEM) {
   });
 }
 // Flags a sentence that mentions exactly one listed person and uses the opposite set of pronouns.
-function misgendered(text) {
-  const SHE = /\b(she|her|hers|herself)\b/i, HE = /\b(he|him|his|himself)\b/i;
-  for (const sent of text.split(/(?<=[.!?\n])\s+/)) {
+// Returns { who, fix } when a pronoun needs fixing:
+//  - a sentence naming exactly one family member uses the other set of pronouns, or
+//  - any gendered pronoun appears near someone whose pronouns we don't know (other league members).
+function misgendered(text, others = []) {
+  const SHE = /\b(she|her|hers|herself)\b/i, HE = /\b(he|him|his|himself)\b/i, ANY = /\b(she|her|hers|herself|he|him|his|himself)\b/i;
+  const sents = text.split(/(?<=[.!?\n])\s+/);
+  for (const sent of sents) {
     const named = Object.keys(PRONOUNS).map(k => FAMILY.find(f => f.key === k)).filter(f => f && new RegExp(`\\b${f.short}\\b`, 'i').test(sent));
-    if (named.length !== 1) continue;
-    const p = PRONOUNS[named[0].key] || '';
-    if (p.startsWith('she') && HE.test(sent)) return named[0].short;
-    if (p.startsWith('he') && SHE.test(sent)) return named[0].short;
+    if (named.length === 1) {
+      const p = PRONOUNS[named[0].key] || '';
+      if ((p.startsWith('she') && HE.test(sent)) || (p.startsWith('he') && SHE.test(sent))) return { who: named[0].short, fix: `use the correct pronouns for ${named[0].short} (see the pronoun list)` };
+    }
+  }
+  for (const o of others) {
+    const first = o.split(' ')[0];
+    if (FAMILY.some(f => f.pool === o)) continue;
+    if (text.toLowerCase().includes(first.toLowerCase()) && sents.some(s => new RegExp(`\\b${first}\\b`, 'i').test(s) && ANY.test(s)))
+      return { who: o, fix: `don't use he/she/him/her/his for ${o}; we don't know their pronouns, so repeat the name` };
   }
   return null;
 }
@@ -414,7 +441,7 @@ async function tick() {
   if (!ment.length && now - lastPost < MIN_GAP_S * 1e3) return 45;
 
   // Mentions first, then the most important game events (bundled into one message).
-  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false;
+  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false, askPeople = [];
   const pvE = fresh.find(e => e.preview);
   if (pvE && !ment.length) {
     prompt = `Write the WEEKEND KICKOFF PREVIEW for the family chat: hype everyone up for the weekend's storylines. Cover the family race, each of us vs the league, and the family vs the league, plus the must-watch games by day. Picks are already locked in, so don't tell anyone to make or change picks. Keep 'this week' and 'season' numbers exactly as labeled. Use only these facts:\n${pvE.facts}\n\nWrite the message.`;
@@ -425,11 +452,17 @@ async function tick() {
     const { data: prof } = m.testAs ? { data: { first_name: m.testAs } } : await sb.from('profiles').select('first_name').eq('user_id', m.user_id).maybeSingle();
     const asker = FAMILY.find(f => f.key === prof?.first_name)?.short || 'Someone';
     const question = m.body.replace(/@commentator\b/ig, '').trim();
-    const brief = C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history: HISTORY }) : 'No picks loaded yet.';
+    const hctx = ARCHIVE ? buildContext({ archives: { 2025: ARCHIVE }, league: P.league }) : null;
+    const history = hctx ? { summary: historySummary(hctx, P.fam) } : null;
+    const people = hctx ? namedPeople(P, question) : [];
+    askPeople = people;
+    const reports = people.map(n => reportText(scoutingReport(hctx, n))).join('\n\n');
+    if (people.length) log('scouting reports for:', people.join(', '));
+    const brief = (C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history }) : 'No picks loaded yet.') + (reports ? '\n\nSCOUTING REPORTS FOR PEOPLE IN THE QUESTION:\n' + reports : '');
     const scenario = C ? await parseScenario(P, live, question) : [];
     const scen = scenario.length ? scenarioFacts(P, live, C, scenario) : '';
     if (scenario.length) log('scenario:', scenario.map(s => `${s.fav_no}:${s.fav_covers ? 'fav' : 'dog'}`).join(','));
-    prompt = `${asker} asked you in the family chat: "${question}"\n\nRecent chat for context:\n${await recentChat()}\n\nDATA BRIEF (ground truth; use these numbers exactly):\n${brief}${scen ? '\n\n' + scen : ''}\n\nAnswer ${asker}'s question.`;
+    prompt = `${asker} asked you in the family chat: "${question}"\n\nRecent chat for context:\n${await recentChat()}\n\nDATA BRIEF (ground truth; use these numbers exactly):\n${brief}${scen ? '\n\n' + scen : ''}${people.filter(n => !P.fam.some(f => f.pool === n)).length ? `\n\nPronouns for ${people.filter(n => !P.fam.some(f => f.pool === n)).join(', ')} are unknown: refer to them only by name, never he/she/his/her.` : ''}\n\nAnswer ${asker}'s question.`;
     system = QA_SYSTEM(); isQA = true;
     used = [];
     log('mention:', m.body.slice(0, 80));
@@ -444,9 +477,13 @@ async function tick() {
   try {
     const ask = p => isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system).then(t => clean(t, 600)) : askClaude(p).then(t => clean(t));
     let text = await ask(prompt);
-    // Safety net: if a sentence names exactly one family member and uses the other gender's pronoun, rewrite once.
-    const wrong = misgendered(text);
-    if (wrong) { log(`rewriting: pronoun for ${wrong}`); text = await ask(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, using the correct pronouns for ${wrong} (see the pronoun list).`); }
+    // Safety net: wrong pronoun for a family member, or any he/she for someone whose pronouns we don't know: rewrite once.
+    for (let tries = 0; tries < 2; tries++) {
+      const wrong = misgendered(text, askPeople); if (!wrong) break;
+      const extra = askPeople.filter(n => !P.fam.some(f => f.pool === n));
+      log(`rewriting: pronoun for ${wrong.who}`);
+      text = await ask(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, but ${wrong.fix}${extra.length ? `; also never use he/she/his/her/him for ${extra.join(', ')} (repeat the name)` : ''}.`);
+    }
     if (!text) throw new Error('empty reply');
     await post(text, P.week.week, gameNo);
     state.posts.push(Date.now());
