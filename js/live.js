@@ -27,7 +27,14 @@ export async function fetchLive(week) {
         const c = e.competitions[0];
         const st = c.status;
         const teams = {};
-        for (const t of c.competitors) teams[t.team.abbreviation] = { score: Number(t.score || 0), home: t.homeAway === 'home' };
+        // DraftKings spread + juice per team (ESPN's feed). Used by js/model.js.
+        const ps = (c.odds || [])[0]?.pointSpread;
+        const num = v => (v == null || v === '' || v === 'OFF' ? NaN : Number(String(v).replace('+', '')));
+        for (const t of c.competitors) {
+          const side = ps?.[t.homeAway]; const cur = side?.current ?? side?.close;
+          teams[t.team.abbreviation] = { score: Number(t.score || 0), home: t.homeAway === 'home',
+            line: num(cur?.line), odds: num(cur?.odds), openLine: num(side?.open?.line) };
+        }
         out.set(e.id, {
           state: st.type.state,                  // pre | in | post
           completed: st.type.completed,

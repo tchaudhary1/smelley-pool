@@ -452,3 +452,15 @@ nav.tabs { -webkit-mask-image: none; mask-image: none; scroll-behavior: smooth; 
   .matrix th.rh .av { width: 24px; height: 24px; font-size: 11px; }
   .matrix td.cell, .matrix td.muted { min-width: 42px; padding: 8px 1px; font-size: 13px; }
 }
+
+/* ---------- race / what-ifs ---------- */
+.race-row { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.race-row:last-of-type { border-bottom: 0; }
+.race-name { font-weight: 700; }
+.race-bar { height: 8px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin: 4px 0 3px; }
+.race-bar i { display: block; height: 100%; border-radius: 4px; }
+.race-sub { font-size: 12px; color: var(--ink-3); }
+.race-odds { text-align: right; } .race-odds b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; } .race-odds small { font-size: 11px; color: var(--ink-3); }
+.race-ghost { font-style: italic; opacity: .85; }
+.whatif { padding: 9px 10px; border-left: 3px solid var(--gold); background: var(--panel-2); border-radius: 0 8px 8px 0; margin: 8px 0; font-size: 13.5px; line-height: 1.4; }
+.meta.race { margin-top: 4px; } .meta.race b { color: var(--ink); }

@@ -66,9 +66,11 @@ export const HELP = [
     { id: 'h2h', title: 'Head to Head', keys: 'head to head matrix record swing', body: `
       <p>The grid shows each pair's week-by-week record: read across a row, so "3–0" means that row's person outscored that column's person in 3 weeks. Green means the row leads, red means they trail. Tap a square for details, including this week's shared picks and direct clashes.</p>
       <p><b>Swing games</b> are this week's games where the family is on opposite sides, the ones that decide bragging rights.</p>` },
-    { id: 'lab', title: 'Pick Lab', keys: 'pick lab insights style consensus model agreement', body: `
+    { id: 'lab', title: 'Pick Lab', keys: 'pick lab insights style consensus model race simulation what-if what if win odds chance', body: `
       <p>The week's storylines (boldest pick, loneliest pick, biggest underdog bet), each person's pick style (favorites vs underdogs, home vs road, NFL vs college), and a consensus board of every game with a family pick.</p>
-      <p><b>Model agreement</b> and <b>Model: fav covers</b> come from the number-crunching behind Tarun's shadow card, for Saturday college games only. The model starts from the betting market and adjusts a little using power ratings. It isn't a crystal ball: its best picks are only about 53–54% to cover.</p>` },
+      <p><b>This week's race</b> plays the rest of the week out 5,000 times, using every game's chance to cover (live during games). It shows each person's chance to win the family this week, expected score, and likely range. With only one family card loaded, it's head to head against Tarun's shadow card.</p>
+      <p><b>What-ifs that matter most</b> are the unfinished games that move those chances the most: "If Georgia covers, Jamie's chance goes from 32% to 53%." They're a rooting guide. Tap one to open the game.</p>
+      <p><b>The model</b> covers every game on the sheet. It starts from the current DraftKings line with the sportsbook's cut removed, adds a small nudge from power ratings for college games, and prices the pool's printed spread, giving key numbers like 3 and 7 extra weight. It updates as lines move. It isn't a crystal ball: even its favorite picks are only about 53–55% to cover.</p>` },
     { id: 'talk', title: 'Smack Talk', keys: 'chat smack talk message reactions emoji mention tag delete', body: `
       <ul><li>Type a message and press <b>Enter</b> (Shift+Enter for a new line), or tap Send.</li>
       <li>Type <b>@</b> to mention someone: a menu pops up. Keep typing to narrow it down, then tap a name or press Enter or Tab.</li>
@@ -83,7 +85,8 @@ export const HELP = [
     { id: 'commentator', title: 'Who is 🎙️ The Commentator?', keys: 'commentator bot ai claude color commentary', body: `
       <p>The Commentator is a chat bot powered by Claude (an AI). It posts cheeky color commentary in Smack Talk when family picks swing: a cover flipping, a late sweat, a bad beat by the hook, a new family leader.</p>
       <ul><li>Ask it something by typing <b>@Commentator</b> in a message. It usually replies within a minute or two.</li>
-      <li>It posts at most a few times an hour, so it won't flood the chat.</li>
+      <li>Now and then it drops a <b>what-if</b> during games ("Jamie fans: root for Georgia; it takes her from 32% to 53%"), plus a preview of the day's biggest stakes before the first family kickoff. Those come from the same simulation as the Pick Lab.</li>
+      <li>It posts at most a few times an hour (what-ifs at most every 40 minutes), so it won't flood the chat.</li>
       <li>It only runs while Tarun's computer has it switched on, so sometimes it's quiet.</li>
       <li>It can only read the pool and post messages. It can't change picks or scores.</li>
       <li>It's meant to tease the picks, not the people. If it ever misses the mark, tell Tarun; he can mute it.</li></ul>` },
@@ -111,7 +114,7 @@ export const HELP = [
       <ul><li><b>Scores</b> come from ESPN's public scoreboard and refresh about every minute while games are live (every few minutes otherwise). They can lag a TV broadcast by 30 seconds or so.</li>
       <li><b>Times</b> are shown in Eastern Time.</li>
       <li><b>Picks and standings</b> are uploaded by Tarun from the commissioner's sheets. The league's official scores always win if anything disagrees.</li>
-      <li><b>Chances to cover</b> are estimates, for fun, not guarantees.</li></ul>` },
+      <li><b>Chances to cover and win odds</b> come from live betting lines plus simulation. They're estimates, for fun, not guarantees.</li></ul>` },
   ]},
   { group: 'Privacy & safety', topics: [
     { id: 'privacy', title: 'Who can see what', keys: 'privacy who can see private data security', body: `

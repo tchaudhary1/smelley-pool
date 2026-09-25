@@ -3,6 +3,8 @@ import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
 import { HELP } from './help.js';
 import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
+import { buildModel } from './model.js';
+import { simulateWeek, describeWhatIf } from './sim.js';
 import { $, $$, esc, pct, fmt1, fam, famByPool, avatar, etTime, etDay, ago, until, ranks, mean, median, quantile,
   openModal, closeModal, modalHead, lineChart, stripPlot, histogram } from './ui.js';
 
@@ -101,8 +103,25 @@ async function start() {
 }
 function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
 
+// Model + simulation are recomputed whenever scores/lines refresh or new picks arrive.
+function simEntries() {
+  return entries().filter(e => e.picks).map(e => ({ key: e.f.key, label: e.f.shadow ? "Tarun's shadow card" : e.f.short, official: !e.f.shadow, conf: e.picks.conf }));
+}
+function recompute() {
+  S.week.research = buildModel(S.week, S.live);
+  const ents = simEntries();
+  S.sim = ents.length ? simulateWeek(S.week, S.live, S.week.research, ents) : null;
+}
+function raceLine(f) {
+  const se = S.sim?.entries.find(x => x.key === f.key); if (!se) return '';
+  if (se.pWin != null) return `<div class="meta race"><span>🏆 Win week <b>${pct(se.pWin)}</b></span></div>`;
+  const vsShadow = !f.shadow && S.sim.h2h?.[f.key]?.tarun;
+  return vsShadow != null && vsShadow !== undefined && !f.shadow ? `<div class="meta race"><span>⚔️ Beats shadow <b>${pct(vsShadow)}</b></span></div>` : '';
+}
+const simLabel = key => key === 'tarun' ? "Tarun's shadow card" : (fam(key)?.short || key);
 async function refreshLive() {
   S.live = await fetchLive(S.week); S.lastLive = new Date();
+  recompute();
   const n = [...S.live.values()].filter(s => s.state === 'in').length;
   $('#liveDot').classList.toggle('on', n > 0);
   $('#liveTxt').textContent = n ? `${n} live` : `updated ${S.lastLive.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
@@ -185,7 +204,7 @@ function viewGameDay() {
     return `<div class="panel fcard clickable" tabindex="0" style="--c:${f.color}" data-member="${f.key}">
       <div class="who">${avatar(f)}<div>${esc(f.short)}<br><small>${f.shadow ? 'Watson–Tarun' : esc(f.pool)}</small></div></div>
       ${grade ? `<div class="big">${grade.banked}<span> pts banked</span></div>
-        <div class="meta"><span>Live +${grade.liveNow}</span><span>Max ${grade.maxPossible}</span><span>Exp ${fmt1(grade.expected)}</span></div>
+        <div class="meta"><span>Live +${grade.liveNow}</span><span>Max ${grade.maxPossible}</span><span>Exp ${fmt1(grade.expected)}</span></div>${raceLine(f)}
         <div class="pips">${pips}</div>` : `<div class="none">Picks not in yet</div>`}
       <div class="rankline">${season}</div></div>`;
   }).join('');
@@ -372,6 +391,26 @@ function swingGames() {
 }
 
 // ------------------------------------------------------------ PICK LAB
+// "This week's race": simulated odds + what-ifs that move them.
+function raceSection() {
+  const sim = S.sim;
+  if (!sim) return `<div class="panel insight"><p>The race appears once picks are loaded.</p></div>`;
+  const rows = [...sim.entries].sort((a, b) => (b.official - a.official) || (b.pWin ?? -1) - (a.pWin ?? -1) || b.mean - a.mean);
+  const official = rows.filter(r => r.official).length;
+  const bar = (p, color) => `<div class="race-bar"><i style="width:${Math.max(2, p * 100)}%;background:${color}"></i></div>`;
+  const body = rows.map(r => { const f = fam(r.key);
+    const odds = r.pWin != null ? `<b>${pct(r.pWin)}</b><small>to win week</small>` : r.official && sim.h2h[r.key]?.tarun != null ? `<b>${pct(sim.h2h[r.key].tarun)}</b><small>to beat shadow</small>` : `<b class="muted">–</b><small>unofficial</small>`;
+    const p = r.pWin ?? (r.official ? sim.h2h[r.key]?.tarun : null);
+    return `<div class="race-row clickable ${r.official ? '' : 'race-ghost'}" data-member="${r.key}">
+      ${avatar(f)}<div class="race-main"><div class="race-name">${esc(r.official ? f.short : "Tarun's shadow card")}</div>${p != null ? bar(p, f.color) : ''}
+      <div class="race-sub">Expected ${fmt1(r.mean)} · likely ${r.p10}–${r.p90}</div></div><div class="race-odds">${odds}</div></div>`; }).join('');
+  const ifs = (sim.whatifs || []).slice(0, 4).map(w => describeWhatIf(w, S.week, simLabel)).filter(Boolean);
+  const note = official < 2 ? '<p class="note">Family win odds appear once two or more family cards are loaded. Until then it\'s head to head against the shadow card.</p>' : '';
+  return `${title("This week's race", `${sim.n.toLocaleString()} simulated weeks using live lines and scores · ${sim.openGames} games still to decide`)}
+    <div class="grid two"><div class="panel insight">${body}${note}</div>
+      <div class="panel insight"><h3>🔀 What-ifs that matter most</h3>${ifs.length ? ifs.map(x => `<div class="whatif clickable" data-game="${x.favNo}">${esc(x.text)}</div>`).join('') : '<p>Nothing left that changes the race.</p>'}
+      <p class="note">Recomputed every refresh. As games finish, these shift, and the Commentator may chime in with the big ones.</p></div></div>`;
+}
 function viewLab() {
   const E = entries().filter(e => e.picks);
   const profile = e => {
@@ -390,9 +429,10 @@ function viewLab() {
       <div class="stat-row"><span>NFL / college</span><span class="num">${p.nfl} / ${p.n - p.nfl}</span></div>${bar(p.nfl, p.n - p.nfl, 'var(--win)', 'var(--live)')}
       <div class="stat-row"><span>Average spread taken</span><span class="num">${fmt1(p.avgSpread)}</span></div>
       <div class="stat-row"><span>Confidence on underdogs</span><span class="num">${p.dogConf} of 55</span></div>
-      <div class="stat-row"><span>Model agreement <small class="muted">(${p.modelN} Sat. college picks)</small></span><span class="num">${p.model == null ? '–' : pct(p.model)}</span></div></div>`; }).join('');
+      <div class="stat-row"><span>Avg model cover chance <small class="muted">(${p.modelN} picks)</small></span><span class="num">${p.model == null ? '–' : pct(p.model)}</span></div></div>`; }).join('');
   $('#main').innerHTML = `${title('Pick Lab', `Week ${S.week.week}: what everyone's betting on, and how the numbers see it`)}
-    <div class="grid two">${insights(E)}</div>
+    ${raceSection()}
+    ${title('Storylines')}<div class="grid two">${insights(E)}</div>
     ${title('Pick styles')}<div class="grid two">${profCards || '<div class="panel empty">No picks loaded yet.</div>'}</div>
     ${title('Consensus board', 'Every game with at least one family pick')}
     <div class="panel tbl-wrap">${consensusTable()}</div>
@@ -418,7 +458,7 @@ function insights(E) {
   if (popular && popular.length > 1) out.push(card('🤝', 'Family consensus', `${popular.map(r => esc(r.e.f.short)).join(', ')} all have ${esc(sideName(popular[0].g, popular[0].side))} ${sideSpread(popular[0].g, popular[0].side)}.`, popular[0].g.fav_no));
   if (lonely) out.push(card('🏝️', 'Loneliest pick', `Only ${esc(lonely.e.f.short)} is on ${esc(sideName(lonely.g, lonely.side))} (${lonely.conf} pts).`, lonely.g.fav_no));
   if (early) out.push(card('⏱️', 'Early sweat', `${esc(early.e.f.short)}'s ${early.conf} on ${esc(sideName(early.g, early.side))} goes before Saturday. ${early.st.state === 'post' ? (early.status === 'won' ? 'Already banked.' : 'Already gone. No lead is safe.') : early.st.state === 'in' ? `Live: ${esc(early.st.detail)}.` : ''}`, early.g.fav_no));
-  if (modelFav) out.push(card('📈', 'The model\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover, per the shadow-card model.`, modelFav.g.fav_no));
+  if (modelFav) out.push(card('📈', 'The model\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover, per the model.`, modelFav.g.fav_no));
   if (modelHate && modelHate !== modelFav) out.push(card('📉', 'The model disagrees', `${esc(modelHate.e.f.short)}'s ${esc(sideName(modelHate.g, modelHate.side))} ${sideSpread(modelHate.g, modelHate.side)}: only <b>${pct(modelHate.m.p)}</b> by the model. Prove it wrong.`, modelHate.g.fav_no));
   return out.join('');
 }
@@ -556,6 +596,11 @@ function emojiPop(btn, after) {
 }
 
 // ============================================================ CARDS
+function gameWhatIf(g) {
+  const w = S.sim?.whatifs?.find(x => x.favNo === g.fav_no); if (!w) return '';
+  const d = describeWhatIf(w, S.week, simLabel); if (!d) return '';
+  return `<h4>What it means for the race</h4><div class="whatif">${esc(d.text)}</div>`;
+}
 function openGame(favNo) {
   const g = S.week.games.find(x => x.fav_no === favNo); if (!g) return;
   const draw = () => {
@@ -581,9 +626,10 @@ function openGame(favNo) {
         <h4>The numbers</h4>
         <div class="kv"><div><b>${esc(g.fav)} −${fmtHalf(g.spread)}</b><span>Pool line (fixed)</span></div>
           <div><b>${esc(live?.odds || '–')}</b><span>ESPN / DraftKings now</span></div>
-          ${rf ? `<div><b>${esc(rf.market)}</b><span>6-book median (Thu night)</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model cover: fav / dog</span></div>` : ''}
+          ${rf ? `<div><b>${esc(rf.market ?? "–")}</b><span>Market line for ${esc(g.fav)}</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model: cover chance fav / dog</span></div>` : ''}
           <div><b>${stake}</b><span>Family points riding</span></div>
           <div><b>${g.home === 'fav' ? esc(g.fav) : g.home === 'dog' ? esc(g.dog) : '–'}</b><span>Home team${g.espn?.neutral ? ' (neutral site)' : ''}</span></div></div>
+        ${gameWhatIf(g)}
         <h4>${esc(g.fav)} −${fmtHalf(g.spread)} backers</h4>${rows('fav')}
         <h4>${esc(g.dog)} +${fmtHalf(g.spread)} backers</h4>${rows('dog')}
         <h4>Game reactions</h4>${reactBar(`game:${S.week.week}:${g.fav_no}`)}
@@ -769,7 +815,7 @@ async function uploadPicks(files) {
         fresh.picks ??= {};
         for (const { e } of toSave) fresh.picks[e.name] = { conf: e.conf, tiebreaker: e.tiebreaker };
         fresh.picksUpdated = new Date().toISOString();
-        await db.saveDataset(`week${S.week.week}`, fresh); S.week = fresh;
+        await db.saveDataset(`week${S.week.week}`, fresh); S.week = fresh; recompute();
         out.innerHTML = `✅ Saved ${toSave.length}: ${esc(toSave.map(r => r.e.name).join(', '))}. Everyone sees it on their next refresh.`;
       } catch (err) { out.innerHTML = `<span class="err">Save failed: ${esc(err.message)}</span>`; }
     };
