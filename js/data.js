@@ -114,12 +114,55 @@ async function loadProfiles() {
 const shapeMsg = m => ({ id: m.id, at: m.created_at, who: keyOf[m.user_id] ?? m.who ?? '?', week: m.week, game: m.game_no, body: m.body, mine: false });
 
 export async function listMessages(week) {
-  if (LOCAL) return store.get('sp.msgs', []).filter(m => !week || m.week === week);
+  if (LOCAL) return store.get('sp.msgs', []).filter(m => !m.archivedAt && (!week || m.week === week));
   await loadProfiles();
-  const q = (await client()).from('messages').select('*').order('created_at', { ascending: true }).limit(500);
-  const { data, error } = week ? await q.eq('week', week) : await q;
+  const c = await client();
+  const base = () => c.from('messages').select('*').order('created_at', { ascending: true }).limit(500);
+  // Live chat only (archived messages are hidden). Falls back if the archive columns don't exist yet.
+  let { data, error } = await (week ? base().eq('week', week) : base()).is('archived_at', null);
+  if (error && /archived_at/.test(error.message)) ({ data, error } = await (week ? base().eq('week', week) : base()));
   if (error) throw error;
   return data.map(shapeMsg);
+}
+
+// ---------- chat archive (admin) ----------
+// Clearing = archiving: messages leave the live chat but stay available to the admin.
+export async function archiveChat(label) {
+  const now = new Date().toISOString();
+  if (LOCAL) { const msgs = store.get('sp.msgs', []); let n = 0; for (const m of msgs) if (!m.archivedAt) { m.archivedAt = now; m.archiveLabel = label; n++; } store.set('sp.msgs', msgs); return n; }
+  const { data, error } = await (await client()).from('messages').update({ archived_at: now, archive_label: label }).is('archived_at', null).select('id');
+  if (error) throw new Error(/archived_at|column/.test(error.message) ? 'The chat-archive database update hasn’t been run yet (supabase/002_chat_archive.sql).' : error.message);
+  return data.length;
+}
+export async function listArchives() {
+  let rows;
+  if (LOCAL) rows = store.get('sp.msgs', []).filter(m => m.archivedAt).map(m => ({ archive_label: m.archiveLabel, archived_at: m.archivedAt }));
+  else {
+    const { data, error } = await (await client()).from('messages').select('archive_label, archived_at').not('archived_at', 'is', null).limit(10000);
+    if (error) return [];
+    rows = data;
+  }
+  const by = new Map();
+  for (const r of rows) { const k = r.archive_label || 'Archived chat'; const a = by.get(k) || { label: k, count: 0, at: r.archived_at }; a.count++; if (r.archived_at > a.at) a.at = r.archived_at; by.set(k, a); }
+  return [...by.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+export async function loadArchive(label) {
+  if (LOCAL) return store.get('sp.msgs', []).filter(m => m.archivedAt && m.archiveLabel === label);
+  await loadProfiles();
+  const { data, error } = await (await client()).from('messages').select('*').eq('archive_label', label).order('created_at', { ascending: true }).limit(5000);
+  if (error) throw error;
+  return data.map(shapeMsg);
+}
+// Permanent: removes an archive's messages and their reactions. Cannot be undone.
+export async function deleteArchive(label) {
+  if (LOCAL) { const all = store.get('sp.msgs', []); const gone = all.filter(m => m.archiveLabel === label).map(m => `msg:${m.id}`);
+    store.set('sp.msgs', all.filter(m => m.archiveLabel !== label)); store.set('sp.reacts', store.get('sp.reacts', []).filter(r => !gone.includes(r.target))); return gone.length; }
+  const c = await client();
+  const { data: ids, error: e1 } = await c.from('messages').select('id').eq('archive_label', label).limit(10000); if (e1) throw e1;
+  const targets = ids.map(r => `msg:${r.id}`);
+  for (let i = 0; i < targets.length; i += 200) { const { error } = await c.from('reactions').delete().in('target', targets.slice(i, i + 200)); if (error) throw error; }
+  const { error: e2 } = await c.from('messages').delete().eq('archive_label', label); if (e2) throw e2;
+  return ids.length;
 }
 export async function postMessage(user, { body, week, game }) {
   if (LOCAL) {

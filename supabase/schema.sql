@@ -71,3 +71,5 @@ create policy "unreact own" on public.reactions for delete to authenticated usin
 -- Live updates for the chat and reactions.
 alter publication supabase_realtime add table public.messages;
 alter publication supabase_realtime add table public.reactions;
+
+-- Then run 002_chat_archive.sql (chat clear/archive for the admin).

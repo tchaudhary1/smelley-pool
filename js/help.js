@@ -164,6 +164,11 @@ export const HELP = [
       <li>Saves merge into the newest saved copy, so two uploads can't erase each other. Win odds and league projections update right after a save.</li></ul>` },
     { id: 'admin-preview', title: 'Weekend preview controls', keys: 'weekend preview send now queue admin', body: `
       <p>The <b>📣 Weekend kickoff preview</b> card shows how many family and league pick sheets are loaded. The preview posts automatically once all family sheets and 90% of the league's are in, or right away with <b>Send the weekend preview now</b>. It posts once per week, needs the Commentator running, and waits while the Commentator is muted.</p>` },
+    { id: 'chat-archive', title: 'Clearing the chat, and archives', keys: 'clear reset chat archive delete download smack talk admin', body: `
+      <p>On the Upload tab, <b>💬 Smack Talk: clear &amp; archives</b> lets you start the chat fresh. <b>Clear chat</b> doesn't delete anything: it files every current message under the archive name you give it, and the chat empties for everyone.</p>
+      <ul><li><b>View</b> opens an archive read-only. <b>Download</b> saves it as a text file.</li>
+      <li><b>Delete</b> removes an archive and its reactions permanently. You have to type DELETE, and it can't be undone, so download it first if there's any chance you'll want it.</li>
+      <li>Only you can see archives. Family members only ever see the live chat.</li></ul>` },
     { id: 'newweek', title: 'Starting a new week', keys: 'new week odds doc build push model ratings', body: `
       <p>The weekly odds sheet (<code>.doc</code>) is loaded from the computer with <code>tools/build-week.mjs</code> and <code>npm run push</code> (see the README), or ask Claude or Watson to do it. Set <code>currentWeek</code> in <code>local-data/settings.json</code> and push it too. Optional: refresh the college power-ratings nudge with <code>tools/model-residuals.mjs</code> and <code>tools/set-model-r.mjs</code>. After that, pick sheets and totals go through the Upload tab.</p>` },
     { id: 'addpeople', title: 'Adding people, and running the Commentator', keys: 'invite add user commentator mute start run', body: `

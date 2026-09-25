@@ -828,6 +828,61 @@ function previewCard() {
     ${queued ? '' : `<button class="btn gold" id="pvGo">Send the weekend preview now</button>`}
     <div id="pvOut" class="note">It posts once per week. It needs the Commentator running on the PC, and it waits while the Commentator is muted.</div></div>`;
 }
+// ---------- chat clear / archive (admin) ----------
+function chatAdminCard() {
+  const d = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+  return `<div class="panel insight" style="margin-top:12px"><h3>💬 Smack Talk: clear &amp; archives</h3>
+    <p><b>${S.msgs.length}</b> message${S.msgs.length === 1 ? '' : 's'} in the live chat. Clearing archives them: the chat starts fresh for everyone, and the old messages stay here for you to view, download, or delete permanently.</p>
+    <label class="fld">Archive name<input id="arcLabel" class="search" value="Week ${S.week.week} chat (cleared ${d})" maxlength="60"></label>
+    <button class="btn gold" id="arcGo" ${S.msgs.length ? '' : 'disabled'}>Clear chat (archive it)</button>
+    <div id="arcOut" class="note"></div>
+    <h4 class="lg-h">Archives <span class="muted" style="text-transform:none;letter-spacing:0">(only you can see these)</span></h4>
+    <div id="arcList" class="note">Loading…</div></div>`;
+}
+async function refreshArchiveList() {
+  const box = $('#arcList'); if (!box) return;
+  const list = await db.listArchives().catch(() => []);
+  box.innerHTML = list.length ? list.map(a => `<div class="arc-row"><div><b>${esc(a.label)}</b><br><span class="muted">${a.count} message${a.count === 1 ? '' : 's'} · archived ${ago(a.at)}</span></div>
+    <div class="arc-btns"><button class="btn ghost small" data-arc-view="${esc(a.label)}">View</button><button class="btn ghost small" data-arc-dl="${esc(a.label)}">Download</button><button class="btn ghost small danger" data-arc-del="${esc(a.label)}">Delete</button></div></div>`).join('')
+    : 'No archives yet.';
+  $$('[data-arc-view]', box).forEach(b => b.onclick = () => openArchive(b.dataset.arcView));
+  $$('[data-arc-dl]', box).forEach(b => b.onclick = () => downloadArchive(b.dataset.arcDl));
+  $$('[data-arc-del]', box).forEach(b => b.onclick = async () => {
+    const label = b.dataset.arcDel;
+    const typed = prompt(`Permanently delete the archive "${label}"? This can't be undone. Download it first if you might want it.\n\nType DELETE to confirm.`);
+    if (typed !== 'DELETE') return;
+    try { const n = await db.deleteArchive(label); $('#arcOut').textContent = `Deleted "${label}" (${n} messages) permanently.`; refreshArchiveList(); }
+    catch (err) { $('#arcOut').textContent = 'Delete failed: ' + err.message; }
+  });
+}
+function bindChatAdmin() {
+  refreshArchiveList();
+  $('#arcGo')?.addEventListener('click', async () => {
+    const label = ($('#arcLabel').value || '').replace(/[<>]/g, '').trim().slice(0, 60) || `Week ${S.week.week} chat`;
+    if (!confirm(`Clear the live chat for everyone?\n\n${S.msgs.length} messages will be archived as "${label}". You can view, download or delete the archive later.`)) return;
+    $('#arcGo').disabled = true;
+    try { const n = await db.archiveChat(label); await refreshSocial(); $('#arcOut').textContent = `Cleared. ${n} messages archived as "${label}".`; refreshArchiveList(); }
+    catch (err) { $('#arcOut').textContent = err.message; $('#arcGo').disabled = false; }
+  });
+}
+function archiveText(label, msgs) {
+  const line = m => `[${new Date(m.at).toLocaleString('en-US', { timeZone: 'America/New_York' })}] ${fam(m.who)?.short || m.who}: ${m.body}`;
+  return `${label}\n${'='.repeat(label.length)}\n\n${msgs.map(line).join('\n')}\n`;
+}
+async function openArchive(label) {
+  const msgs = await db.loadArchive(label).catch(() => []);
+  openModal(`${modalHead('Chat archive', esc(label))}<div class="mb"><div class="feed arc-feed">${msgs.map(m => { const f = fam(m.who);
+      return `<div class="msg">${avatar(f)}<div class="bubble"><div class="by">${esc(f?.short || m.who)} · ${new Date(m.at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div><div class="body">${withMentions(m.body)}</div></div></div>`; }).join('') || '<div class="empty">Empty archive.</div>'}</div>
+    <p class="note">${msgs.length} messages · read-only</p></div>`);
+  modalRefresher = null;
+}
+async function downloadArchive(label) {
+  const msgs = await db.loadArchive(label).catch(() => []);
+  const blob = new Blob([archiveText(label, msgs)], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${label.replace(/[^\w\- ()]+/g, '').replace(/\s+/g, '-')}.txt`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
 function viewAdmin() {
   if (!S.user.admin) return go('gameday');
   $('#main').innerHTML = `${title('Upload', 'Commissioner files go in here and everyone sees the update')}
@@ -839,6 +894,7 @@ function viewAdmin() {
         <div class="drop" id="dropTotals" style="margin-top:10px">Drop the totals .xls here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileTotals" accept=".xls,.xlsx" hidden></label></div><div id="totalsOut" class="note"></div></div>
     </div>
     ${previewCard()}
+    ${chatAdminCard()}
     <div class="panel insight" style="margin-top:12px"><h3>🎙️ The Commentator</h3>
       <p>Color commentary in Smack Talk when family picks swing, from the commentator program running on Tarun's PC. It only posts while that program is running.</p>
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600"><input type="checkbox" id="commOn" ${S.settings?.commentary === false ? '' : 'checked'}> Commentary on</label>
@@ -847,6 +903,7 @@ function viewAdmin() {
   const wire = (drop, input, fn) => { const d = $(drop); d.ondragover = e => { e.preventDefault(); d.classList.add('over'); }; d.ondragleave = () => d.classList.remove('over');
     d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); fn([...e.dataTransfer.files]); }; $(input).onchange = e => fn([...e.target.files]); };
   wire('#dropPicks', '#filePicks', uploadPicks); wire('#dropTotals', '#fileTotals', uploadTotals);
+  bindChatAdmin();
   $('#pvGo')?.addEventListener('click', async () => { const out = $('#pvOut'); $('#pvGo').disabled = true;
     try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, previewWeek: S.week.week }; await db.saveDataset('settings', S.settings);
       out.textContent = 'Queued. The Commentator posts it within a few minutes, as long as it’s running and not muted.'; }
