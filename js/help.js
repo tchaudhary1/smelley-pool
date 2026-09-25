@@ -65,13 +65,14 @@ export const HELP = [
       <li>The <b>thin bar</b> under a live score is the favorite's chance to cover right now.</li>
       <li>A team name turns <b>green</b> when that side is covering.</li>
       <li><b>DECIDED BY THE HOOK</b> means the game finished exactly half a point from the spread.</li></ul>` },
-    { id: 'standings', title: 'Standings', keys: 'standings league rank tie T- back pctl percentile charts race family cup best ball family vs league', body: `
+    { id: 'standings', title: 'Standings', keys: 'standings league rank tie T- back pctl percentile charts race family cup best ball family vs league around the league storylines movers climbers lead changes', body: `
       <p>The whole league's season totals, straight from the commissioner's weekly workbook. Switch between <b>Family only</b> and <b>Whole league</b>, or search a name. Tap a row for that person's card with their week-by-week scores and ranks.</p>
       <ul><li><b>T-9</b> means tied for 9th.</li>
       <li>The current week's column shows <b>live</b> points (marked *) for anyone whose picks are loaded. Official scores replace them when the commissioner posts totals.</li>
       <li><b>Back</b>: points behind the league leader. <b>Pctl</b>: percentile (90 = better than 90% of the league). On a phone, the week-by-week and percentile columns are hidden to fit the screen; tap a row to see them.</li>
       <li>The <b>shadow card</b> row (striped) is Tarun's unofficial experiment. It isn't ranked.</li></ul>
-      <p>Below the table:</p>
+      <p><b>Around the league</b>, right under the table, tells the season's story from the official scores: who leads and since when, every lead change, the latest week's top scores, the best single week of the season, the biggest climbers and drops, and each family member's rank movement (▲▼ since last week). Tap a name for their scouting report.</p>
+      <p>Below that:</p>
       <ul><li><b>Every weekly score in the league</b>: each dot is one entry's week; the family is in color. Tap for week-by-week details.</li>
       <li><b>The race</b>: cumulative points against the league median and the 10th-place line.</li>
       <li><b>Season totals</b>: where each of us sits in the league's spread of scores.</li>
@@ -115,8 +116,8 @@ export const HELP = [
       <li><b>By confidence</b>: how their high, middle and low confidence picks (and their 10s) covered.</li>
       <li><b>The neighborhood</b>: the players ranked just ahead of and behind them this season, with each one's finish in every past season, and <b>what separates them</b>, including whether that difference actually paid off league-wide or is just style.</li></ul>
       <p>Pick habits pool every season on file (about 360 picks per person over 2024 and 2025). The week-by-week chart has a button for each season. Useful for thinking about strategy, not guarantees.</p>` },
-    { id: 'cards', title: 'Pop-up cards', keys: 'card popup modal tap click details gauge what it means', body: `
-      <p>A <b>game card</b> has the live score, a gauge showing which side is covering (and by how much), the live chance of covering, the last play, the pool line next to the current market line and the model's cover chances, who in the family is on each side, and <b>What it means for the race</b>: how that game moves the family race, the league race and the family-vs-league battle.</p>
+    { id: 'cards', title: 'Pop-up cards', keys: 'card popup modal tap click details gauge what it means news injuries headlines line movement', body: `
+      <p>A <b>game card</b> has the live score, a gauge showing which side is covering (and by how much), the live chance of covering, the last play, the pool line next to the current market line and the model's cover chances, who in the family is on each side, <b>What it means for the race</b> (how that game moves the family race, the league race and the family-vs-league battle), and <b>News &amp; injuries</b>: each team's latest ESPN headlines (tap to read on ESPN), the NFL injury report (players out, doubtful or questionable; colleges don't publish one), and how far the betting line has moved since the commissioner's sheet. A big move usually means news: an injury, a suspension, the weather.</p>
       <p>A <b>person card</b> has their week (banked, max, expected), season total and percentile, a weekly chart against the league average, and every pick with its live status and chance to cover.</p>` },
   ]},
   { group: 'The numbers', topics: [
@@ -144,6 +145,8 @@ export const HELP = [
       <li>someone takes the family lead for the week;</li>
       <li>a live game swings a storyline: the family race, someone's shot at a top-10 league week, or the family against the league (these <b>what-ifs</b> come at most every 40 minutes);</li>
       <li>the first family game of the day is about to kick off (a preview of the day's biggest stakes);</li>
+      <li>big pre-game news hits a family game: the line moves 2½ points or more since the sheet, or a quarterback is ruled out or doubtful (at most one of these every few hours);</li>
+      <li>a week's official scores are in: the <b>weekly recap</b> (the lead, the week's best, the movers, each of us, the family vs the league);</li>
       <li>someone tags <b>@Commentator</b>. It notices within about 10 seconds and usually answers within half a minute. Blinking dots in the chat mean it is working on it. Only tagged messages get an answer; if the dots sit there for a while, it may be offline.</li></ul>
       <p><b>Ask it anything about the pool.</b> It answers from the same live data as the dashboard: everyone's picks and live status, win odds, head-to-heads, league and season rankings, and the family against the league. Try:</p>
       <ul><li>"@Commentator how is the family doing against the league?"</li>
@@ -151,6 +154,8 @@ export const HELP = [
       <li>"@Commentator what does Jamie need to win the week?"</li>
       <li>"@Commentator how does Wyatt Johnson pick?" or "who in the family is best with their 10s?" (it knows past seasons too)</li>
       <li>"@Commentator how did I do in 2024 compared with 2025?" or "does going contrarian actually work?"</li></ul>
+      <p>It also knows each week's <b>league storylines</b> and the <b>news</b> for games with family picks (ESPN headlines, NFL injuries, line moves).</p>
+      <p><b>Real-world news questions</b> ("Is Jayden Daniels playing Sunday?", "Any injury news for Georgia?") get a quick web search of major sports sites (ESPN, AP, CBS, Fox, NFL.com and a few others). It says where the news came from, and if it can't confirm something, it says so. These answers take a little longer, about 15–30 seconds. It only searches for teams and players, never anyone's name from the family or the league.</p>
       <p>If the answer isn't in the data, it says so rather than guessing.</p>
       <p>It uses everyone's correct pronouns, sticks to the actual numbers, and teases the picks, not the people. It can only read the pool and post messages; it can't change picks or scores.</p>` },
     { id: 'preview', title: 'The weekend kickoff preview', keys: 'preview weekend kickoff hype summary storylines', body: `
@@ -193,7 +198,7 @@ export const HELP = [
       <li>Accounts are invite-only; nobody can sign themselves up, and sign-in links only go to emails already on the list.</li>
       <li>Everyone in the family can read every chat message. You can delete your own.</li>
       <li>Past seasons and scouting reports (including other league members' names and picks) are behind the same login and never in the public code.</li>
-      <li>When The Commentator writes a comment, the relevant scores, picks, past-season stats and recent chat lines are sent to Claude to write it.</li></ul>` },
+      <li>When The Commentator writes a comment, the relevant scores, picks, past-season stats and recent chat lines are sent to Claude to write it. For news questions it searches sports sites for team and player names only.</li></ul>` },
   ]},
   { group: 'For Tarun (admin)', admin: true, topics: [
     { id: 'upload', title: 'Uploading picks and standings', keys: 'upload admin xls picks totals workbook validate duplicate', body: `
@@ -203,8 +208,9 @@ export const HELP = [
       <li>Totals checks: scores 0–55, no duplicate names. Past-week score changes and entries that would disappear are flagged, and you have to tick a box to confirm them.</li>
       <li>Only Excel files up to 5 MB are accepted. Names are cleaned of stray characters and markup.</li>
       <li>Saves merge into the newest saved copy, so two uploads can't erase each other. Win odds and league projections update right after a save.</li></ul>` },
-    { id: 'admin-preview', title: 'Weekend preview controls', keys: 'weekend preview send now queue admin', body: `
-      <p>The <b>📣 Weekend kickoff preview</b> card shows how many family and league pick sheets are loaded. The preview posts automatically once all family sheets and 90% of the league's are in, or right away with <b>Send the weekend preview now</b>. It posts once per week, needs the Commentator running, and waits while the Commentator is muted.</p>` },
+    { id: 'admin-preview', title: 'Weekend preview and weekly recap controls', keys: 'weekend preview send now queue admin recap weekly', body: `
+      <p>The <b>📣 Weekend kickoff preview</b> card shows how many family and league pick sheets are loaded. The preview posts automatically once all family sheets and 90% of the league's are in, or right away with <b>Send the weekend preview now</b>. It posts once per week, needs the Commentator running, and waits while the Commentator is muted.</p>
+      <p>The <b>📰 Weekly recap</b> card works the same way: the recap posts by itself when a new week's official totals are uploaded, or right away with <b>Post the week N recap now</b>. One per week.</p>` },
     { id: 'chat-archive', title: 'Clearing the chat, and archives', keys: 'clear reset chat archive delete download smack talk admin', body: `
       <p>On the Upload tab, <b>💬 Smack Talk: clear &amp; archives</b> lets you start the chat fresh. <b>Clear chat</b> doesn't delete anything: it files every current message under the archive name you give it, and the chat empties for everyone.</p>
       <ul><li><b>View</b> opens an archive read-only. <b>Download</b> saves it as a text file.</li>

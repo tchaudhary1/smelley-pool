@@ -524,3 +524,9 @@ table.yoy td:last-child { white-space: nowrap; }
 /* Pick Lab style cards */
 .offscript { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; background: var(--live-bg); color: var(--live); vertical-align: 1px; }
 .style-card .sr-v small { display: block; }
+
+/* Game card: news & injuries */
+.news-line { margin: 4px 0 8px; font-weight: 600; }
+.news-h { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
+.news-inj { gap: 8px 16px; margin-bottom: 6px; }
+.news-list a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }

@@ -2,6 +2,8 @@ import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS, HISTORY_SEASONS 
 import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
 import { HELP } from './help.js';
+import { leagueStorylines } from './storylines.js';
+import { fetchGameNews, lineMove, lineMoveText } from './news.js';
 import { buildContext, scoutingReport, leagueLessons, lessonVerdicts } from './profile.js';
 import { samePerson } from './names.js';
 import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
@@ -374,6 +376,22 @@ function gameRow(g) {
 }
 
 // ------------------------------------------------------------ STANDINGS
+// "Around the league": storylines from the official weekly scores (js/storylines.js).
+function aroundTheLeague() {
+  const L = leagueStorylines(S.league, FAMILY); if (!L) return '';
+  const who = n => { const f = famOf(n); return f ? `${avatar(f)} <b>${esc(f.short)}</b>` : nameLink(n); };
+  const mv = x => `${who(x.name)} <span class="muted">#${x.from}→#${x.to}</span>`;
+  const arrow = f => f.prev == null ? '' : f.prev === f.rank ? '<span class="muted">–</span>' : f.prev > f.rank ? `<span class="delta up">▲${f.prev - f.rank}</span>` : `<span class="delta dn">▼${f.rank - f.prev}</span>`;
+  const famRows = [...L.family].sort((a, b) => a.rank - b.rank).map(f => `<div class="stat-row"><span>${avatar(fam(f.key))} ${esc(f.short)} <span class="muted">#${f.rank}</span> ${arrow(f)}</span><span class="num">wk ${f.week ?? '–'} <span class="muted">(#${f.weekRank ?? '–'})</span></span></div>`).join('');
+  return `${title(`Around the league`, `Storylines through week ${L.week}, from the official scores`)}
+    <div class="grid two">
+      <div class="panel insight"><h3>👑 The lead</h3><p>${L.current.names.map(who).join(' and ')} ${L.current.names.length > 1 ? 'share' : 'leads'} with <b>${L.current.total}</b>${L.lead != null ? `, ${L.lead} ahead` : ''}. ${L.heldSince === 1 ? 'In front since week 1.' : `In front since week ${L.heldSince}.`}</p>
+        <p class="note">Lead changes this season: ${L.changes.length ? L.changes.map(w => 'week ' + w).join(', ') : 'none'}. Best single week so far: ${L.best.map(b => `${who(b.name)} ${b.s} (wk ${b.week})`).join(', ')}.</p></div>
+      <div class="panel insight"><h3>🏆 Week ${L.week}</h3><p>Top scores: ${L.top.map(x => `${who(x.name)} ${x.s}`).join(' · ')}</p><p class="note">League average ${fmt1(L.weekAvg)}. The family beat the rest of the league's average in ${L.beatN} of ${L.week} weeks.</p></div>
+      ${L.climbers.length ? `<div class="panel insight"><h3>📈 Movers in week ${L.week}</h3><p>Up: ${L.climbers.map(mv).join(' · ')}</p><p>Down: ${L.fallers.map(mv).join(' · ') || '–'}</p></div>` : ''}
+      <div class="panel insight"><h3>🏠 The family</h3>${famRows}<p class="note">Arrows: season-rank change from last week. "wk": week ${L.week} score and rank that week.</p></div>
+    </div>`;
+}
 function viewStandings() {
   const T = leagueTable(); const sh = shadowRow(); const cw = S.week.week;
   const wkCols = Array.from({ length: T.weeks }, (_, i) => `W${i + 1}`);
@@ -399,6 +417,7 @@ function viewStandings() {
     <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th class="wk">${c}</th>`).join('')}<th>W${cw}</th><th>Total</th><th>Back</th><th class="pc">Pctl</th></tr></thead>
       <tbody>${rows.map(tr).join('')}${S.famOnly || !q ? ghost : ''}</tbody></table></div>
     <div class="note">*Live week-${cw} points from ESPN, for entries whose picks are loaded. Official weekly scores replace them once the commissioner posts totals.</div>
+    ${aroundTheLeague()}
     ${title('How the family stacks up')}
     <div class="grid two">
       <div class="panel chart clickable" id="chStrip"><h3>Every weekly score in the league</h3><div class="cap">Grey dots are the ${T.n} entries; dashed line is the weekly average. Tap for details.</div>
@@ -417,6 +436,7 @@ function viewStandings() {
   $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
   $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : famOf(tr.dataset.name) ? openMember(famOf(tr.dataset.name).key) : openProfile(tr.dataset.name));
   $('#chStrip').onclick = () => openWeekSpread(T);
+  bindProfileLinks($('#main'));
   $$('.cup-row').forEach(el => el.onclick = () => el.dataset.member ? openMember(el.dataset.member) : openLeagueMember(el.dataset.name));
 }
 function familyCup(T) {
@@ -838,6 +858,7 @@ function openGame(favNo) {
           <div><b>${stake}</b><span>Family points riding</span></div>
           <div><b>${g.home === 'fav' ? esc(g.fav) : g.home === 'dog' ? esc(g.dog) : '–'}</b><span>Home team${g.espn?.neutral ? ' (neutral site)' : ''}</span></div></div>
         ${gameWhatIf(g)}
+        <h4>News &amp; injuries</h4><div id="gnews">${newsHtml(g)}</div>
         <h4>${esc(g.fav)} −${fmtHalf(g.spread)} backers</h4>${rows('fav')}
         <h4>${esc(g.dog)} +${fmtHalf(g.spread)} backers</h4>${rows('dog')}
         <h4>Game reactions</h4>${reactBar(`game:${S.week.week}:${g.fav_no}`)}
@@ -846,7 +867,28 @@ function openGame(favNo) {
   };
   const mount = m => { bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
   openModal(draw(), { onMount: mount });
+  loadNews(g);
   modalRefresher = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };
+}
+
+// ---------- game news (ESPN headlines, NFL injuries, line movement) ----------
+S.news = new Map();   // espn id -> news, fetched when a game card opens (js/news.js caches 15 min)
+function loadNews(g) {
+  if (!g.espn?.id) return;
+  fetchGameNews(g, S.live).then(n => { S.news.set(g.espn.id, n); const box = $('#gnews'); if (box && $('.modal')) box.innerHTML = newsHtml(g); })
+    .catch(() => { const box = $('#gnews'); if (box) box.innerHTML = '<p class="muted" style="font-size:13px">News is unavailable right now.</p>'; });
+}
+function newsHtml(g) {
+  const n = S.news.get(g.espn?.id); if (!n) return '<p class="muted" style="font-size:13px">Loading news…</p>';
+  const mv = lineMoveText(g, lineMove(g, S.live));
+  const ago = iso => { const h = (Date.now() - Date.parse(iso)) / 36e5; return h < 1 ? 'just now' : h < 24 ? `${Math.round(h)}h ago` : `${Math.round(h / 24)}d ago`; };
+  const inj = side => n.injuries.filter(i => i.side === side).slice(0, 5).map(i => `<li><b>${esc(i.name)}</b> <span class="muted">${esc(i.pos)}</span> · ${esc(i.status)}${i.detail ? ` <span class="muted">(${esc(i.detail)})</span>` : ''}</li>`).join('');
+  const injF = inj('fav'), injD = inj('dog');
+  const heads = n.articles.slice(0, 6).map(a => `<li>${a.video ? '🎥 ' : ''}${String(a.url || '').startsWith('https://') ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.headline)}</a>` : esc(a.headline)} <span class="muted">· ${esc(a.side === 'fav' ? g.fav : g.dog)} · ${ago(a.published)}</span></li>`).join('');
+  return `${mv ? `<p class="news-line">📉 ${esc(mv)}</p>` : ''}
+    ${injF || injD ? `<div class="grid two news-inj">${injF ? `<div><div class="news-h">${esc(g.fav)} injuries</div><ul class="sr-list">${injF}</ul></div>` : ''}${injD ? `<div><div class="news-h">${esc(g.dog)} injuries</div><ul class="sr-list">${injD}</ul></div>` : ''}</div>` : ''}
+    ${heads ? `<ul class="sr-list news-list">${heads}</ul>` : '<p class="muted" style="font-size:13px">No recent headlines for these teams.</p>'}
+    <p class="note">From ESPN${g.league === 'NFL' ? '' : '. College injury reports aren’t published'}; the Commentator sees these too.</p>`;
 }
 
 function openMember(key) {
@@ -1147,6 +1189,18 @@ function previewCard() {
     ${queued ? '' : `<button class="btn gold" id="pvGo">Send the weekend preview now</button>`}
     <div id="pvOut" class="note">It posts once per week. It needs the Commentator running on the PC, and it waits while the Commentator is muted.</div></div>`;
 }
+// Weekly recap: posts automatically when the commissioner's official scores for a new week are
+// uploaded (Standings totals), or on demand from here.
+function recapCard() {
+  const L = leagueStorylines(S.league, FAMILY);
+  const queued = L && S.settings?.recapWeek === L.week;
+  return `<div class="panel insight" style="margin-top:12px"><h3>📰 Weekly recap</h3>
+    <p>A one-time post from the Commentator after each week's official scores are uploaded: the season lead, the week's top scores, the biggest movers, each of us, and the family vs the league (the same storylines as "Around the league" on Standings).</p>
+    <div class="kv" style="margin:10px 0"><div><b>${L ? 'Week ' + L.week : '–'}</b><span>Latest week with official scores</span></div>
+      <div><b>${queued ? 'Queued' : 'Automatic'}</b><span>${queued ? 'Posting shortly' : 'Posts when the next week\'s totals are uploaded'}</span></div></div>
+    ${L && !queued ? `<button class="btn gold" id="rcGo">Post the week ${L.week} recap now</button>` : ''}
+    <div id="rcOut" class="note">One recap per week. It needs the Commentator running on the PC, and it waits while the Commentator is muted.</div></div>`;
+}
 // ---------- chat clear / archive (admin) ----------
 function chatAdminCard() {
   const d = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
@@ -1213,6 +1267,7 @@ function viewAdmin() {
         <div class="drop" id="dropTotals" style="margin-top:10px">Drop the totals .xls here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileTotals" accept=".xls,.xlsx" hidden></label></div><div id="totalsOut" class="note"></div></div>
     </div>
     ${previewCard()}
+    ${recapCard()}
     ${chatAdminCard()}
     <div class="panel insight" style="margin-top:12px"><h3>🎙️ The Commentator</h3>
       <p>Color commentary in Smack Talk when family picks swing, from the commentator program running on Tarun's PC. It only posts while that program is running.</p>
@@ -1227,6 +1282,10 @@ function viewAdmin() {
     try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, previewWeek: S.week.week }; await db.saveDataset('settings', S.settings);
       out.textContent = 'Queued. The Commentator posts it within a few minutes, as long as it’s running and not muted.'; }
     catch (err) { out.textContent = 'Failed: ' + err.message; $('#pvGo').disabled = false; } });
+  $('#rcGo')?.addEventListener('click', async () => { const out = $('#rcOut'); $('#rcGo').disabled = true;
+    try { const L = leagueStorylines(S.league, FAMILY); const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, recapWeek: L.week }; await db.saveDataset('settings', S.settings);
+      out.textContent = 'Queued. The Commentator posts it within a minute or so, as long as it’s running and not muted.'; }
+    catch (err) { out.textContent = 'Failed: ' + err.message; $('#rcGo').disabled = false; } });
   $('#commOn').onchange = async e => { const out = $('#commOut');
     try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, commentary: e.target.checked }; await db.saveDataset('settings', S.settings);
       out.textContent = e.target.checked ? 'On. The Commentator will chime in.' : 'Muted. The Commentator stays quiet until you turn it back on.'; }

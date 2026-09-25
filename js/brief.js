@@ -7,7 +7,7 @@ const pc = x => (x == null ? 'n/a' : x < 0.005 ? '<1%' : x > 0.995 ? '>99%' : `$
 const side = (g, s) => (s === 'fav' ? `${g.fav} −${fmtHalf(g.spread)}` : `${g.dog} +${fmtHalf(g.spread)}`);
 const f1 = x => (Math.round(x * 10) / 10).toFixed(1);
 
-// P: { week, live, model, league, fam: [{key, short, pool, shadow}], sim, history? }
+// P: { week, live, model, league, fam: [{key, short, pool, shadow}], sim, history?, storylines?, news? }
 export function buildBrief(P) {
   const { week, live, model, league, fam, sim } = P;
   const out = [];
@@ -92,6 +92,10 @@ export function buildBrief(P) {
   }
   if (sim?.familyVsLeague) { const v = sim.familyVsLeague; out.push(`THIS WEEK, FAMILY VS LEAGUE (simulated): family average about ${f1(v.famAvg)} vs rest ${f1(v.lgAvg)}; family beats league average ${pc(v.pFamAhead)}; someone in the family has a top-10 week ${pc(v.pFamTop10)}.`); }
 
+  // ---- league storylines from the official scores (js/storylines.js)
+  if (P.storylines?.lines?.length) out.push(`\nLEAGUE STORYLINES (official scores):\n${P.storylines.lines.join('\n')}`);
+  // ---- news for games with family picks that haven't finished (js/news.js; ESPN)
+  if (P.news?.length) out.push(`\nNEWS (from ESPN; quote headlines as reported, attribute to ESPN):\n${P.news.map(x => `${x.label}: ${x.facts.join(' ')}`).join('\n')}`);
   // ---- past seasons (when provided)
   if (P.history?.summary) out.push(`\nPAST SEASONS:\n${P.history.summary}`);
   return out.join('\n');
