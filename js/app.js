@@ -127,8 +127,21 @@ function raceLine(f) {
   return (vsShadow != null && !f.shadow ? `<div class="meta race"><span>⚔️ Beats shadow <b>${pct(vsShadow)}</b></span></div>` : '') + lg;
 }
 const simLabel = key => key === 'tarun' ? "Tarun's shadow card" : key === 'family' ? 'The family' : (fam(key)?.short || key.replace(/^lg:/, ''));
+// Demo mode: overlay a staged game state (demo-data/live.json) on top of the real ESPN feed.
+async function applyDemoLive() {
+  const staged = await db.loadDataset('live'); if (!staged) return;
+  for (const [id, st] of Object.entries(staged)) {
+    const cur = S.live.get(id) || { teams: {} };
+    const g = S.week.games.find(x => x.espn?.id === id); if (!g) continue;
+    const teams = { ...cur.teams };
+    teams[g.espn.espnFav] = { ...(teams[g.espn.espnFav] || {}), score: st.fav };
+    teams[g.espn.espnDog] = { ...(teams[g.espn.espnDog] || {}), score: st.dog };
+    S.live.set(id, { ...cur, state: st.state, completed: st.state === 'post', detail: st.detail, period: st.period ?? 4, clock: st.clock, clockSec: st.clockSec ?? 0, teams, situation: st.last ? { last: st.last } : null });
+  }
+}
 async function refreshLive() {
   S.live = await fetchLive(S.week); S.lastLive = new Date();
+  if (db.DEMO) await applyDemoLive();
   recompute();
   const n = [...S.live.values()].filter(s => s.state === 'in').length;
   $('#liveDot').classList.toggle('on', n > 0);

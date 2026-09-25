@@ -3,7 +3,13 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY, FAMILY } from './config.js';
 
 // Local preview: no backend configured, or ?preview on localhost (dev testing without touching the real data).
-export const LOCAL = !SUPABASE_URL || (['localhost', '127.0.0.1'].includes(location.hostname) && new URLSearchParams(location.search).has('preview'));
+const QS = new URLSearchParams(location.search);
+const ON_LOCALHOST = ['localhost', '127.0.0.1'].includes(location.hostname);
+export const LOCAL = !SUPABASE_URL || (ON_LOCALHOST && QS.has('preview'));
+// Demo mode (localhost only): fictional picks/league/chat and a staged live Saturday, used to make
+// screenshots for emails without exposing anyone's real data. ?preview&demo&as=jamie
+export const DEMO = LOCAL && ON_LOCALHOST && QS.has('demo');
+const DATA_DIR = DEMO ? './demo-data/' : './local-data/';
 let sb = null;
 
 async function client() {
@@ -22,6 +28,15 @@ const store = {
 
 // ---------- auth ----------
 export async function currentUser() {
+  if (DEMO && QS.get('as')) {
+    const key = QS.get('as');
+    if (!store.get('sp.demoSeeded', false)) {   // seed the demo chat once per browser profile
+      const chat = await fetch(DATA_DIR + 'chat.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (chat) { store.set('sp.msgs', chat.messages); store.set('sp.reacts', chat.reactions); }
+      store.set('sp.demoSeeded', true);
+    }
+    return { id: 'demo-' + key, key, admin: key === 'tarun' };
+  }
   if (LOCAL) return store.get('sp.localUser', null);
   const c = await client();
   const { data } = await c.auth.getSession();
@@ -76,7 +91,7 @@ export async function signOut() {
 
 // ---------- roster (full names live in the database, not the repo) ----------
 export async function loadRoster() {
-  if (LOCAL) { const r = await fetch('./local-data/roster.json', { cache: 'no-store' }); return r.ok ? r.json() : {}; }
+  if (LOCAL) { const r = await fetch(DATA_DIR + 'roster.json', { cache: 'no-store' }); return r.ok ? r.json() : {}; }
   // The 'roster' dataset (pushed by the admin) covers everyone, with or without an account yet.
   const c = await client();
   const [{ data: ds }, { data: profs }] = await Promise.all([
@@ -88,7 +103,7 @@ export async function loadRoster() {
 // ---------- datasets ----------
 export async function loadDataset(key) {
   if (LOCAL) {
-    const r = await fetch(`./local-data/${key}.json`, { cache: 'no-store' });
+    const r = await fetch(`${DATA_DIR}${key}.json`, { cache: 'no-store' });
     if (!r.ok) return null;
     return r.json();
   }
