@@ -810,6 +810,24 @@ function viewHelp() {
 }
 
 // ------------------------------------------------------------ ADMIN (Tarun)
+// Weekend kickoff preview: posts once per week when all family cards and ~all league picks are
+// loaded (same rule as tools/commentator.mjs), or right away with the button.
+function previewCard() {
+  const famList = FAMILY.filter(f => !f.shadow);
+  const famNames = new Set(famList.map(f => f.pool).filter(Boolean));
+  const famIn = famList.filter(f => f.pool && S.week.picks?.[f.pool]).length;
+  const lgIn = Object.keys(S.week.picks || {}).filter(n => !famNames.has(n)).length;
+  const lgSize = Math.max(0, (S.league?.members?.length || 0) - famList.length), lgNeed = Math.ceil(lgSize * 0.9);
+  const queued = S.settings?.previewWeek === S.week.week;
+  const ready = famIn === famList.length && lgIn >= lgNeed;
+  return `<div class="panel insight" style="margin-top:12px"><h3>📣 Weekend kickoff preview</h3>
+    <p>A one-time hype post from the Commentator covering the whole weekend: the family race, each of us vs the league, the family vs the league, and the must-watch games from Thursday to Monday.</p>
+    <div class="kv" style="margin:10px 0"><div><b>${famIn} / ${famList.length}</b><span>Family pick sheets loaded</span></div>
+      <div><b>${lgIn} / ${lgSize}</b><span>League pick sheets loaded (needs ${lgNeed})</span></div>
+      <div><b>${queued ? 'Queued' : ready ? 'Ready' : 'Waiting'}</b><span>${queued ? 'Posting shortly' : ready ? 'Posts automatically within minutes' : 'Posts automatically when both are in'}</span></div></div>
+    ${queued ? '' : `<button class="btn gold" id="pvGo">Send the weekend preview now</button>`}
+    <div id="pvOut" class="note">It posts once per week. It needs the Commentator running on the PC, and it waits while the Commentator is muted.</div></div>`;
+}
 function viewAdmin() {
   if (!S.user.admin) return go('gameday');
   $('#main').innerHTML = `${title('Upload', 'Commissioner files go in here and everyone sees the update')}
@@ -820,6 +838,7 @@ function viewAdmin() {
       <div class="panel insight"><h3>📊 Yearly totals (.xls)</h3><p>The commissioner's "Yearly totals through Week N" workbook. Replaces the standings.</p>
         <div class="drop" id="dropTotals" style="margin-top:10px">Drop the totals .xls here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileTotals" accept=".xls,.xlsx" hidden></label></div><div id="totalsOut" class="note"></div></div>
     </div>
+    ${previewCard()}
     <div class="panel insight" style="margin-top:12px"><h3>🎙️ The Commentator</h3>
       <p>Color commentary in Smack Talk when family picks swing, from the commentator program running on Tarun's PC. It only posts while that program is running.</p>
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600"><input type="checkbox" id="commOn" ${S.settings?.commentary === false ? '' : 'checked'}> Commentary on</label>
@@ -828,6 +847,10 @@ function viewAdmin() {
   const wire = (drop, input, fn) => { const d = $(drop); d.ondragover = e => { e.preventDefault(); d.classList.add('over'); }; d.ondragleave = () => d.classList.remove('over');
     d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); fn([...e.dataTransfer.files]); }; $(input).onchange = e => fn([...e.target.files]); };
   wire('#dropPicks', '#filePicks', uploadPicks); wire('#dropTotals', '#fileTotals', uploadTotals);
+  $('#pvGo')?.addEventListener('click', async () => { const out = $('#pvOut'); $('#pvGo').disabled = true;
+    try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, previewWeek: S.week.week }; await db.saveDataset('settings', S.settings);
+      out.textContent = 'Queued. The Commentator posts it within a few minutes, as long as it’s running and not muted.'; }
+    catch (err) { out.textContent = 'Failed: ' + err.message; $('#pvGo').disabled = false; } });
   $('#commOn').onchange = async e => { const out = $('#commOut');
     try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, commentary: e.target.checked }; await db.saveDataset('settings', S.settings);
       out.textContent = e.target.checked ? 'On. The Commentator will chime in.' : 'Muted. The Commentator stays quiet until you turn it back on.'; }

@@ -38,3 +38,7 @@ Tarun's login also has an **Upload** tab. Dropping pick sheets or the yearly-tot
 ## Local preview
 
 `npm run serve`, then open http://localhost:5173. With an empty `SUPABASE_URL`, preview mode reads `local-data/` and accepts any family first name. On any other host, it refuses to run unconfigured.
+
+## The Commentator
+
+`npm run commentator` runs the chat bot on this PC. It reads ESPN and Supabase, and calls the local `claude` CLI with all tools disabled. It posts color commentary, what-ifs (family race, vs the league, family vs league), a daily stakes preview and a once-per-week weekend kickoff preview. That last one fires when every family card and 90% of the league's are loaded, or when you press the button on the Upload tab. It uses no tokens while idle. For testing, `--dry-run` plus `--force-whatif`, `--force-preview` and `--test-picks file.json` print posts instead of sending them.
