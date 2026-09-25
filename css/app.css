@@ -495,3 +495,14 @@ table.nb tr.me-row td { background: color-mix(in srgb, var(--gold) 14%, transpar
   .sr-row { grid-template-columns: 96px 1fr 104px; font-size: 12.5px; }
   table.nb th:nth-child(5), table.nb td:nth-child(5), table.nb th:nth-child(8), table.nb td:nth-child(8) { display: none; }
 }
+
+/* "The Commentator is typing…" */
+#typing:empty { display: none; }
+.msg.typing .bubble { opacity: .85; }
+.msg.typing .body { font-style: italic; color: var(--ink-2); }
+.dots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .2s; }
+.dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .2; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }

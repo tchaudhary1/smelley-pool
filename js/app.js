@@ -98,7 +98,8 @@ async function start() {
   } catch (err) { $('#main').innerHTML = `<div class="empty">Couldn't load pool data: ${esc(err.message)}</div>`; return; }
   if (!S.week) { $('#main').innerHTML = `<div class="empty">No data for this week yet.</div>`; return; }
   await Promise.all([refreshLive(), refreshSocial()]);
-  db.subscribe(() => refreshSocial().then(() => { if (S.tab === 'talk') render(); }));
+  db.subscribe(() => refreshSocial().then(() => { botReplied(); if (S.tab === 'talk') render(); }),
+    ({ on }) => { if (on) botWait('typing'); else if (S.botWait?.phase === 'typing') botWait(null); });
   const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(hash)) S.tab = hash;
   render(); schedule();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
@@ -573,7 +574,9 @@ function viewTalk() {
   if (hadFocus) { const b = $('#body'); b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
   if (S.gtag) $('#gtag').value = S.gtag; $('#gtag').onchange = e => S.gtag = e.target.value;
   $('#compose').onsubmit = async e => { e.preventDefault(); const body = $('#body').value.trim(); if (!body) return;
-    try { await db.postMessage(S.user, { body, week: S.week.week, game: $('#gtag').value ? +$('#gtag').value : null }); $('#body').value = ''; S.draft = ''; await refreshSocial(); viewTalk(); }
+    try { await db.postMessage(S.user, { body, week: S.week.week, game: $('#gtag').value ? +$('#gtag').value : null }); $('#body').value = ''; S.draft = '';
+      if (/@commentator\b/i.test(body)) botWait('queued');
+      await refreshSocial(); viewTalk(); }
     catch (err) { alert(err.message); } };
   const menu = mentionMenu($('#body'));
   $('#body').onkeydown = e => { if (menu.handleKey(e)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#compose').requestSubmit(); } };
@@ -595,7 +598,36 @@ if (!window.__fitChatBound) {
   window.visualViewport?.addEventListener('resize', onVV);
   window.addEventListener('resize', onVV); window.addEventListener('orientationchange', onVV);
 }
+// ---------- "The Commentator is typing…" ----------
+// queued: you just tagged it (it checks chat every ~10 s); typing: it broadcast that it's writing.
+// Cleared by its reply, its "done" signal, or after 2 minutes.
+function botWait(phase) {
+  S.botWait = phase ? { phase, at: S.botWait?.at && phase === 'typing' ? S.botWait.at : Date.now() } : null;
+  clearInterval(S.botWaitTimer);
+  if (S.botWait) S.botWaitTimer = setInterval(() => { if (Date.now() - S.botWait.at > 120e3) botWait(null); else drawTyping(); }, 5e3);
+  drawTyping();
+}
+function botReplied() {
+  const last = S.msgs.at(-1);
+  if (S.botWait && last?.who === BOT.key && new Date(last.at) >= S.botWait.at - 5e3) botWait(null);
+}
+function typingHtml() {
+  const w = S.botWait; if (!w) return '';
+  const secs = (Date.now() - w.at) / 1e3;
+  const txt = w.phase === 'typing' ? 'The Commentator is typing' : secs > 45 ? 'Still waiting on the Commentator. It may be offline right now' : 'The Commentator is on it';
+  return `<div class="msg typing">${avatar(BOT)}<div class="bubble"><div class="body">${txt}<span class="dots"><i></i><i></i><i></i></span></div></div></div>`;
+}
+function drawTyping() {
+  const box = $('#typing'); if (!box) return;
+  const fd = $('#feed'); const atBottom = fd && fd.scrollHeight - fd.scrollTop - fd.clientHeight < 60;
+  box.innerHTML = typingHtml();
+  if (atBottom) fd.scrollTop = fd.scrollHeight;
+}
+
 function feed() {
+  return feedMsgs() + `<div id="typing">${typingHtml()}</div>`;
+}
+function feedMsgs() {
   if (!S.msgs.length) return `<div class="empty">No trash talk yet. Somebody has to start it.</div>`;
   const G = new Map(S.week.games.map(g => [g.fav_no, g]));
   return S.msgs.map(m => { const f = fam(m.who); const mine = m.who === S.user.key; const g = m.game && G.get(m.game);

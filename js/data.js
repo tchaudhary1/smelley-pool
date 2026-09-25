@@ -215,9 +215,11 @@ export async function toggleReaction(user, target, emoji, existing) {
 }
 
 // Realtime: call onChange() whenever chat or reactions change anywhere.
-export async function subscribe(onChange) {
+// onTyping({ on }) fires when the Commentator starts or stops writing (a broadcast, nothing stored).
+export async function subscribe(onChange, onTyping = () => {}) {
   if (LOCAL) { window.addEventListener('storage', onChange); return; }
   const c = await client();
   c.channel('family').on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, onChange).subscribe();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, onChange)
+    .on('broadcast', { event: 'typing' }, ({ payload }) => onTyping(payload || {})).subscribe();
 }

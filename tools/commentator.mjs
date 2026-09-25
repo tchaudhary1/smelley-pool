@@ -32,7 +32,7 @@ const STATE_FILE = process.env.COMMENTATOR_STATE || path.join(ROOT, 'commentator
 const LOG_FILE = path.join(ROOT, 'commentator.log');
 const MODEL = process.env.COMMENTATOR_MODEL || 'sonnet';
 const CLAUDE_BIN = process.env.CLAUDE_BIN || path.join(process.env.USERPROFILE || process.env.HOME || '', '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
-const MIN_GAP_S = 120, MAX_PER_HOUR = 10, MAX_PER_GAME = 4;
+const MIN_GAP_S = 120, MAX_PER_HOUR = 10, MAX_PER_GAME = 4, MAX_QA_PER_HOUR = 30;
 const DRY = process.argv.includes('--dry-run');   // print instead of posting
 const FORCE_WHATIF = DRY && process.argv.includes('--force-whatif');   // test only: ignore game-state gating
 const FORCE_PREVIEW = DRY && process.argv.includes('--force-preview'); // test only: treat picks as complete
@@ -47,6 +47,7 @@ const log = (...a) => { const line = `[${new Date().toLocaleTimeString('en-US', 
 // ---------------------------------------------------------------- state
 const state = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
   : { done: {}, cover: {}, lateFlip: {}, perGame: {}, posts: [], lastMentionId: 0, leader: null, primed: false };
+state.qa ??= [];   // times of recent question answers
 const save = () => fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 1));
 
 // ---------------------------------------------------------------- supabase (as the bot)
@@ -322,6 +323,17 @@ const QA_SYSTEM = () => SYSTEM
   .replace('- Use ONLY the facts provided.', '- Use ONLY the facts in the DATA BRIEF and SCENARIO below the question.')
   + `\n- Strategy talk: only suggest copying a habit if the brief shows it actually paid off (a league-wide pattern marked statistically meaningful, or a lean that "helped"). If a difference didn't matter league-wide, call it style, not a recipe. One season is a small sample; don't oversell.`;
 
+const qaRoom = () => (state.qa = (state.qa || []).filter(t => Date.now() - t < 3600e3)).length < MAX_QA_PER_HOUR;
+// Cheap check (no Claude call) for an unanswered tag; lets the loop wake within seconds.
+async function pendingMention(me) {
+  const { data } = await sb.from('messages').select('id').gt('id', state.lastMentionId).neq('user_id', me).ilike('body', '%@commentator%').limit(1);
+  return !!data?.length;
+}
+// "The Commentator is typing…" for everyone in the chat: a realtime broadcast, nothing stored.
+const typingCh = DRY ? null : sb.channel('family');
+typingCh?.subscribe();
+const typing = on => typingCh?.send({ type: 'broadcast', event: 'typing', payload: { on } }).catch(() => {});
+
 async function mentions(me) {
   const { data } = await sb.from('messages').select('id, body, user_id, created_at').gt('id', state.lastMentionId).order('id').limit(50);
   const out = [];
@@ -429,12 +441,15 @@ async function tick() {
   const anyLive = [...live.values()].some(s => s.state === 'in');
   save();
 
-  if (P.settings.commentary === false) { if (fresh.length) log(`muted: skipping ${fresh.length} events`); fresh.filter(e => !e.preview).forEach(e => state.done[e.id] = true); save(); return anyLive ? 60 : 300; }
+  if (P.settings.commentary === false) { if (!TEST_ASK) await mentions(me.id);   // muted: tags are skipped, not queued
+    if (fresh.length) log(`muted: skipping ${fresh.length} events`); fresh.filter(e => !e.preview).forEach(e => state.done[e.id] = true); save(); return anyLive ? 60 : 300; }
 
   const now = Date.now();
   state.posts = state.posts.filter(t => now - t < 3600e3);
   const lastPost = state.posts.at(-1) || 0;
-  if (state.posts.length >= MAX_PER_HOUR || now - lastPost < 30e3) return 45;
+  // Questions have their own hourly budget and skip the gap between posts.
+  const asked = !TEST_ASK && qaRoom() && await pendingMention(me.id);
+  if (!asked && !TEST_ASK && (state.posts.length >= MAX_PER_HOUR || now - lastPost < 30e3)) return 45;
   // Tags get answered quickly; game commentary waits MIN_GAP_S between posts.
   const ment = TEST_ASK ? (state.asked ? [] : [{ id: 0, body: '@Commentator ' + TEST_ASK, user_id: null, testAs: TEST_AS }]) : await mentions(me.id); save();
   if (TEST_ASK) state.asked = true;
@@ -477,6 +492,7 @@ async function tick() {
     const g = P.week.games.find(x => x.espn?.id === top[0].gid); gameNo = g?.fav_no ?? null;
   } else return anyLive ? 60 : 300;
 
+  typing(true);
   try {
     const ask = p => isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system).then(t => clean(t, 600)) : askClaude(p).then(t => clean(t));
     let text = await ask(prompt);
@@ -489,17 +505,23 @@ async function tick() {
     }
     if (!text) throw new Error('empty reply');
     await post(text, P.week.week, gameNo);
-    state.posts.push(Date.now());
+    (isQA ? state.qa : state.posts).push(Date.now());
     for (const e of used) { state.done[e.id] = true; if (e.gid) state.perGame[e.gid] = (state.perGame[e.gid] || 0) + 1; if (e.whatif) state.lastWhatIf = Date.now(); }
     // Everything else from this game that was pending is covered by the bundled message.
     for (const e of fresh) if (used.some(u => u.gid && u.gid === e.gid)) state.done[e.id] = true;
   } catch (err) { log('error:', err.message); }
+  typing(false);
   save();
   return anyLive ? 60 : 300;
 }
 
+// Between ticks, look for a new tag every 10 seconds and answer right away.
 for (;;) {
   let wait = 120;
   try { wait = await tick(); } catch (err) { log('tick failed:', err.message); }
-  await new Promise(r => setTimeout(r, wait * 1e3));
+  const until = Date.now() + wait * 1e3;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, Math.min(10e3, until - Date.now())));
+    if (!TEST_ASK && qaRoom() && await pendingMention(me.id).catch(() => false)) break;
+  }
 }
