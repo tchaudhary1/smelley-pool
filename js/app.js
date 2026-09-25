@@ -460,19 +460,60 @@ function familyCup(T) {
 }
 
 // ------------------------------------------------------------ HEAD TO HEAD
+// ---------- head to head ----------
+// Weekly scores for a family member in a season: 'now' = this season's official weeks, or a past
+// season from the rebuilt archives. null = not in the pool that season.
+function h2hWeeks(f, yr, T) {
+  if (yr === 'now') { if (f.shadow) return shadowRow().weeks; return T.rows.find(r => r.f === f)?.weeks || null; }
+  const A = S.ctx?.seasons[yr]?.archive; if (!A || !f.pool || f.shadow) return null;
+  return A.entries.find(e => e.name === f.pool || samePerson(e.name, f.pool))?.weeks || null;
+}
+function h2hRecord(a, b) {
+  let w = 0, l = 0, t = 0; if (!a || !b) return null;
+  a.forEach((v, i) => { const u = b[i]; if (v == null || u == null) return; v > u ? w++ : v < u ? l++ : t++; });
+  return w + l + t ? { w, l, t } : null;
+}
+// All seasons on file plus this one, summed.
+function h2hAllTime(fa, fb, T) {
+  const yrs = [...Object.keys(S.ctx?.seasons || {}).sort(), 'now'];
+  const per = yrs.map(y => ({ y, r: h2hRecord(h2hWeeks(fa, y, T), h2hWeeks(fb, y, T)) })).filter(x => x.r);
+  const tot = per.reduce((s, x) => ({ w: s.w + x.r.w, l: s.l + x.r.l, t: s.t + x.r.t }), { w: 0, l: 0, t: 0 });
+  return { per, tot };
+}
+const recTxt = r => (r ? `${r.w}–${r.l}${r.t ? '–' + r.t : ''}` : '–');
+
 function viewH2H() {
-  const T = leagueTable(); const fams = T.rows.filter(r => r.f); const sh = shadowRow();
-  const rec = (a, b) => { let w = 0, l = 0, t = 0; a.weeks.forEach((v, i) => { const u = b.weeks[i]; if (v == null || u == null) return; v > u ? w++ : v < u ? l++ : t++; }); return { w, l, t }; };
-  const cell = (a, b) => { if (a === b) return `<td class="muted">—</td>`; const r = rec(a, b); const c = r.w > r.l ? 'var(--win-bg)' : r.w < r.l ? 'var(--lose-bg)' : 'transparent';
-    return `<td class="cell" style="background:${c}" data-a="${esc(a.name)}" data-b="${esc(b.name)}">${r.w}–${r.l}${r.t ? '–' + r.t : ''}</td>`; };
-  const shadowAsRow = { name: 'Shadow card', f: sh.f, weeks: sh.weeks };
-  $('#main').innerHTML = `${title('Head to head', 'Weekly score head-to-head records. Read across: row vs column. Tap a cell')}
-    <div class="panel tbl-wrap"><table class="matrix"><thead><tr><th class="rh"></th>${fams.map(r => `<th class="ch">${avatar(r.f)}<span class="ch-name">${esc(r.f.short)}</span></th>`).join('')}</tr></thead>
-    <tbody>${fams.map(a => `<tr><th class="rh"><span class="rh-in">${avatar(a.f)}<span>${esc(a.f.short)}</span></span></th>${fams.map(b => cell(a, b)).join('')}</tr>`).join('')}
-    <tr class="shadow-row"><th class="rh"><span class="rh-in">${avatar(sh.f)}<span>Shadow<small>since W${sh.since} · unofficial</small></span></span></th>${fams.map(b => cell(shadowAsRow, b)).join('')}</tr></tbody></table></div>
+  const T = leagueTable();
+  if (!S.ctx) ensureHistory().then(() => { if (S.tab === 'h2h' && !$('.modal')) render(); }).catch(() => {});
+  const yrs = Object.keys(S.ctx?.seasons || {}).sort().reverse();
+  const yr = S.h2hYr === 'all' || S.h2hYr === 'now' || yrs.includes(S.h2hYr) ? S.h2hYr : 'now';
+  const famList = FAMILY.filter(f => !f.shadow && T.rows.some(r => r.f === f));
+  const sh = shadowRow(); const showShadow = yr === 'now';
+  const missing = famList.filter(f => yrs.some(y => S.ctx && !h2hWeeks(f, y, T)));
+  const recOf = (fa, fb) => (yr === 'all' ? h2hAllTime(fa, fb, T).tot : h2hRecord(h2hWeeks(fa, yr, T), h2hWeeks(fb, yr, T)));
+  const cell = (fa, fb) => {
+    if (fa === fb) return `<td class="muted">—</td>`;
+    const r = recOf(fa, fb); if (!r || !(r.w + r.l + r.t)) return `<td class="muted" title="Not both in the pool">–</td>`;
+    const c = r.w > r.l ? 'var(--win-bg)' : r.w < r.l ? 'var(--lose-bg)' : 'transparent';
+    return `<td class="cell" style="background:${c}" data-a="${fa.key}" data-b="${fb.key}">${recTxt(r)}</td>`;
+  };
+  const who = (f, label = f.short, extra = '') => `<button type="button" class="rh-in plink-btn" data-member="${f.key}" title="Open ${esc(label)}'s card">${avatar(f)}<span>${esc(label)}${extra}</span></button>`;
+  const chips = [['now', 'This season'], ...yrs.map(y => [y, y]), ...(yrs.length ? [['all', 'All-time']] : [])]
+    .map(([k, l]) => `<button class="chip ${k === yr ? 'on' : ''}" data-h2hyr="${k}">${l}</button>`).join('');
+  const sub = yr === 'all' ? `Every season on file plus this one (${[...yrs].reverse().join(', ')} and now). Tap a record for the rivalry card`
+    : yr === 'now' ? 'Weekly score records this season. Read across: row vs column. Tap a record for the rivalry card, or a name for that person'
+    : `Weekly score records in ${yr}, rebuilt from the commissioner's files. Tap a record for the rivalry card`;
+  $('#main').innerHTML = `${title('Head to head', sub)}
+    <div class="filters">${chips}${S.ctx ? '' : '<span class="muted" style="font-size:12.5px">Loading past seasons…</span>'}</div>
+    <div class="panel tbl-wrap"><table class="matrix"><thead><tr><th class="rh"></th>${famList.map(f => `<th class="ch"><button type="button" class="ch-btn" data-member="${f.key}" title="Open ${esc(f.short)}'s card">${avatar(f)}<span class="ch-name">${esc(f.short)}</span></button></th>`).join('')}</tr></thead>
+    <tbody>${famList.map(a => `<tr><th class="rh">${who(a)}</th>${famList.map(b => cell(a, b)).join('')}</tr>`).join('')}
+    ${showShadow ? `<tr class="shadow-row"><th class="rh">${who(sh.f, 'Shadow', `<small>since W${sh.since} · unofficial</small>`)}</th>${famList.map(b => cell(sh.f, b)).join('')}</tr>` : ''}</tbody></table></div>
+    ${yr === 'all' && missing.length ? `<p class="note">${missing.map(f => esc(f.short)).join(', ')} ${missing.length > 1 ? "weren't" : "wasn't"} in every past season, so ${missing.length > 1 ? 'those' : 'that'} all-time record${missing.length > 1 ? 's cover' : ' covers'} fewer seasons.</p>` : ''}
     ${title(`This week's biggest swing games`, 'Games where the family is split, weighted by confidence on each side')}
     <div id="swing">${swingGames()}</div>`;
   $$('td.cell').forEach(td => td.onclick = () => openH2H(td.dataset.a, td.dataset.b));
+  $$('[data-member]', $('.matrix')).forEach(b => b.onclick = () => openMember(b.dataset.member));
+  $$('[data-h2hyr]').forEach(b => b.onclick = () => { S.h2hYr = b.dataset.h2hyr; viewH2H(); });
   bindGames();
 }
 function swingGames() {
@@ -936,27 +977,73 @@ function openLeagueMember(name) {
   modalRefresher = null;
 }
 
-function openH2H(aName, bName) {
+// The rivalry card: this week's odds and the games that decide it, the all-time record, how they
+// pick differently, and the running gap this season.
+function openH2H(aKey, bKey) {
   const T = leagueTable(); const sh = shadowRow();
-  const get = n => n === 'Shadow card' ? { name: n, f: sh.f, weeks: sh.weeks, total: sh.total } : T.rows.find(r => r.name === n);
-  const a = get(aName), b = get(bName); if (!a || !b) return;
-  const ea = entries().find(e => e.f === a.f), eb = entries().find(e => e.f === b.f);
-  const G = GB();
-  const setOf = e => new Map(Object.entries(e?.picks?.conf || {}).map(([c, no]) => [no, +c]));
-  const A = setOf(ea), B = setOf(eb);
-  const shared = [...A.keys()].filter(no => B.has(no));
-  const oppose = [...A.keys()].filter(no => { const h = G.get(no); if (!h) return false; const other = h.side === 'fav' ? h.g.dog_no : h.g.fav_no; return B.has(other); });
+  const fa = fam(aKey), fb = fam(bKey); if (!fa || !fb) return;
+  const rowOf = f => f.shadow ? { name: 'Shadow card', f, weeks: sh.weeks, total: sh.total } : T.rows.find(r => r.f === f);
+  const a = rowOf(fa), b = rowOf(fb); if (!a || !b) return;
+  const nA = esc(fa.shadow ? 'Shadow card' : fa.short), nB = esc(fb.shadow ? 'Shadow card' : fb.short);
+  const ea = entries().find(e => e.f === fa), eb = entries().find(e => e.f === fb);
   const ga = ea?.picks ? gradeEntry(ea.picks, S.week, S.live) : null, gb = eb?.picks ? gradeEntry(eb.picks, S.week, S.live) : null;
-  const weekRows = a.weeks.map((v, i) => { const u = b.weeks[i]; if (v == null && u == null) return ''; const w = v != null && u != null ? (v > u ? a.f.short : v < u ? b.f.short : 'Tie') : '–';
-    return `<div class="stat-row"><span>Week ${i + 1}</span><span class="num">${v ?? '–'} – ${u ?? '–'} <span class="muted">· ${esc(w)}</span></span></div>`; }).join('');
-  openModal(`${modalHead('Head to head', `${avatar(a.f)} ${esc(a.f.short)} <span class="muted">vs</span> ${avatar(b.f)} ${esc(b.f.short)}`)}<div class="mb">
-    <div class="kv"><div><b>${a.total} – ${b.total}</b><span>${a.f.shadow || b.f.shadow ? 'Totals (shadow era only for shadow)' : 'Season totals'}</span></div>
-      ${ga && gb ? `<div><b>${ga.banked} – ${gb.banked}</b><span>Week ${S.week.week} so far</span></div><div><b>${fmt1(ga.expected)} – ${fmt1(gb.expected)}</b><span>Week ${S.week.week} expected</span></div>` : ''}</div>
+  const pWin = S.sim?.h2h?.[fa.key]?.[fb.key];
+
+  // What decides this week: games where their picks differ, with the net swing either way.
+  const confOn = (e, no) => { for (const [c, n] of Object.entries(e?.picks?.conf || {})) if (n === no) return +c; return 0; };
+  const deciders = ga && gb ? S.week.games.map(g => {
+    const aF = confOn(ea, g.fav_no), aD = confOn(ea, g.dog_no), bF = confOn(eb, g.fav_no), bD = confOn(eb, g.dog_no);
+    const ifFav = aF - bF, ifDog = aD - bD; if (ifFav === ifDog) return null;   // same result either way
+    return { g, ifFav, ifDog, stake: Math.abs(ifFav - ifDog), st: gameState(g, S.live, S.week.research) };
+  }).filter(Boolean).sort((x, y) => (x.st.state === 'post') - (y.st.state === 'post') || y.stake - x.stake) : [];
+  const swingTxt = n => (n > 0 ? `<b>${nA} +${n}</b>` : n < 0 ? `<b>${nB} +${-n}</b>` : '<span class="muted">even</span>');
+  // Finished games collapse to one line: who banked what from the games that split them.
+  const done = deciders.filter(d => d.st.state === 'post').map(d => (d.st.margin - d.g.spread > 0 ? d.ifFav : d.ifDog));
+  const gotA = done.filter(n => n > 0).reduce((t, n) => t + n, 0), gotB = -done.filter(n => n < 0).reduce((t, n) => t + n, 0);
+  const doneLine = done.length ? `<p class="note">Already decided (${done.length} game${done.length > 1 ? 's' : ''}): ${nA} +${gotA}, ${nB} +${gotB}${gotA !== gotB ? `, so ${gotA > gotB ? nA : nB} is up ${Math.abs(gotA - gotB)} from the games that split them` : ''}.</p>` : '';
+  const decRows = deciders.filter(d => d.st.state !== 'post').map(d => { const g = d.g; const done = d.st.state === 'post'; const favWon = done ? d.st.margin - g.spread > 0 : null;
+    return `<div class="pickrow clickable" data-game="${g.fav_no}"><div class="grow"><div>${esc(g.fav)} −${fmtHalf(g.spread)} covers → ${swingTxt(d.ifFav)}${done && favWon ? ' ✓' : ''}</div>
+      <div>${esc(g.dog)} +${fmtHalf(g.spread)} covers → ${swingTxt(d.ifDog)}${done && !favWon ? ' ✓' : ''}</div></div>
+      <div class="rt">${done ? 'Final' : d.st.state === 'in' ? esc(d.st.detail) : etTime(g.espn?.kickoff)}<br><span class="muted">${d.stake} pt swing</span></div></div>`; }).join('');
+
+  // All-time record, per season, and the biggest single-week win each way.
+  const at = fa.shadow || fb.shadow ? null : h2hAllTime(fa, fb, T);
+  let bigA = null, bigB = null;
+  if (at) for (const y of [...Object.keys(S.ctx?.seasons || {}), 'now']) {
+    const wa = h2hWeeks(fa, y, T), wb = h2hWeeks(fb, y, T); if (!wa || !wb) continue;
+    wa.forEach((v, i) => { const u = wb[i]; if (v == null || u == null) return; const d = v - u; const lab = y === 'now' ? `week ${i + 1} this season` : `${y} week ${i + 1}`;
+      if (d > 0 && (!bigA || d > bigA.d)) bigA = { d, v, u, lab }; if (d < 0 && (!bigB || -d > bigB.d)) bigB = { d: -d, v: u, u: v, lab }; });
+  }
+  const leader = at && (at.tot.w > at.tot.l ? `${nA} leads` : at.tot.w < at.tot.l ? `${nB} leads` : 'Dead even');
+
+  // How they pick: two-season usual for each (style carries over; results don't).
+  const ma = usual(fa), mb = usual(fb);
+  const styleRows = ma && mb ? STYLE.map(st => `<div class="stat-row"><span>${st.label}</span><span class="num">${pct(ma[st.k].share)} <span class="muted">vs</span> ${pct(mb[st.k].share)}</span></div>`).join('')
+    + `<div class="stat-row"><span>Their 10s covered</span><span class="num">${pct(ma.tens.cover)} <span class="muted">vs</span> ${pct(mb.tens.cover)}</span></div>` : '';
+
+  // Running gap this season.
+  let run = 0; const gap = a.weeks.map((v, i) => { const u = b.weeks[i]; if (v == null || u == null) return null; run += v - u; return run; });
+  const weekRows = a.weeks.map((v, i) => { const u = b.weeks[i]; if (v == null && u == null) return ''; const w = v != null && u != null ? (v > u ? nA : v < u ? nB : 'Tie') : '–';
+    return `<div class="stat-row"><span>Week ${i + 1}</span><span class="num">${v ?? '–'} – ${u ?? '–'} <span class="muted">· ${w}</span></span></div>`; }).join('');
+
+  openModal(`${modalHead('Rivalry', `${avatar(fa)} ${nA} <span class="muted">vs</span> ${avatar(fb)} ${nB}`)}<div class="mb">
+    <div class="kv"><div><b>${a.total} – ${b.total}</b><span>${fa.shadow || fb.shadow ? 'Totals (shadow era only for shadow)' : 'Season totals'}</span></div>
+      ${recTxt(h2hRecord(a.weeks, b.weeks)) !== '–' ? `<div><b>${recTxt(h2hRecord(a.weeks, b.weeks))}</b><span>This season, weekly (${nA} first)</span></div>` : ''}
+      ${at?.per.length > 1 ? `<div><b>${recTxt(at.tot)}</b><span>All-time · ${leader}</span></div>` : ''}
+      ${pWin != null ? `<div><b>${pct(pWin)}</b><span>${nA} outscores ${nB} this week</span></div>` : ''}
+      ${ga && gb ? `<div><b>${ga.banked} – ${gb.banked}</b><span>Week ${S.week.week} so far</span></div>` : ''}</div>
+    ${ga && gb ? `<h4>What decides it this week</h4>${decRows || (deciders.length ? '<p class="muted" style="font-size:13px">Every game that splits them is over.</p>' : '<p class="muted" style="font-size:13px">Identical cards this week: whatever happens, they score the same.</p>')}${doneLine}
+      <p class="note">Only games where their picks differ can change who wins the week. The swing is how many points it moves between them.</p>`
+      : `<p class="note">This week's comparison appears once both pick sheets are loaded.</p>`}
+    ${at?.per.length ? `<h4>All-time</h4>${at.per.map(x => `<div class="stat-row"><span>${x.y === 'now' ? 'This season' : x.y}</span><span class="num">${recTxt(x.r)}</span></div>`).join('')}
+      ${bigA || bigB ? `<p class="note">Biggest wins: ${bigA ? `${nA} ${bigA.v}–${bigA.u} (${bigA.lab})` : ''}${bigA && bigB ? ' · ' : ''}${bigB ? `${nB} ${bigB.v}–${bigB.u} (${bigB.lab})` : ''}.</p>` : ''}` : ''}
+    ${styleRows ? `<h4>How they pick <span class="muted" style="text-transform:none;letter-spacing:0">(${nA} vs ${nB}, past seasons)</span></h4>${styleRows}
+      <p class="note">Pick style carries over from year to year in this pool; past results don't, so these are habits, not a forecast.</p>` : ''}
+    ${gap.filter(v => v != null).length >= 2 ? `<h4>The gap this season</h4><div class="chart" style="padding:0">${lineChart({ labels: gap.map((_, i) => `W${i + 1}`), height: 140,
+      series: [{ label: 'Even', color: 'var(--ink-3)', values: gap.map(() => 0), dash: '4 4' }, { label: `${fa.short} minus ${fb.short}`, color: fa.color, values: gap, width: 3 }] })}</div>
+      <p class="note">Above the line: ${nA} ahead on season points. Below: ${nB}.</p>` : ''}
     <h4>Week by week</h4>${weekRows}
-    ${ga && gb ? `<h4>This week: ${shared.length} shared picks, ${oppose.length} head-on clashes</h4>
-      ${oppose.map(no => { const { g, side } = G.get(no); const other = side === 'fav' ? g.dog_no : g.fav_no; return `<div class="pickrow clickable" data-game="${g.fav_no}"><div class="grow"><b>${esc(a.f.short)}</b>: ${esc(sideName(g, side))} ${sideSpread(g, side)} (${A.get(no)}) <span class="muted">vs</span> <b>${esc(b.f.short)}</b>: ${esc(sideName(g, side === 'fav' ? 'dog' : 'fav'))} (${B.get(other)})</div></div>`; }).join('') || '<div class="muted">No direct clashes.</div>'}
-      ${shared.length ? `<div class="note">Shared: ${shared.map(no => { const { g, side } = G.get(no); return `${esc(sideName(g, side))} (${A.get(no)} vs ${B.get(no)})`; }).join(', ')}</div>` : ''}` : `<div class="note">Picks for both needed to compare this week.</div>`}
-  </div>`, { onMount: m => $$('[data-game]', m).forEach(el => el.onclick = () => openGame(+el.dataset.game)) });
+  </div>`, { onMount: m => { $$('[data-game]', m).forEach(el => el.onclick = () => openGame(+el.dataset.game)); } });
   modalRefresher = null;
 }
 

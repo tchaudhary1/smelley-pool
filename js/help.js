@@ -78,8 +78,15 @@ export const HELP = [
       <li><b>Season totals</b>: where each of us sits in the league's spread of scores.</li>
       <li><b>The Family Cup</b>: the family's season order with medals and weekly family wins. Tarun's shadow card appears at the bottom, clearly marked unofficial, and it's compared only on the weeks it has played.</li>
       <li><b>Family vs the league</b>: the family's average against everyone else's, week by week, plus <b>"Team Smelley" best-ball</b>: the family's best score each week added up as if it were one entry, and where that would rank.</li></ul>` },
-    { id: 'h2h', title: 'Head to Head', keys: 'head to head matrix record swing grid', body: `
-      <p>The grid shows each pair's week-by-week record: read across a row, so "3–0" means that row's person outscored that column's person in 3 weeks. Green means the row leads, red means they trail. Tap a square for details, including this week's shared picks and direct clashes. On a phone, the columns show avatars only so the whole grid fits.</p>
+    { id: 'h2h', title: 'Head to Head', keys: 'head to head matrix record swing grid rivalry all-time all time past seasons decides', body: `
+      <p>The grid shows each pair's week-by-week record: read across a row, so "3–0" means that row's person outscored that column's person in 3 weeks. Green means the row leads, red means they trail. On a phone, the columns show avatars only so the whole grid fits.</p>
+      <p>The buttons above the grid switch between <b>This season</b>, each past season, and <b>All-time</b> (every season on file plus this one). Tap a <b>name</b> to open that person's card.</p>
+      <p>Tap a <b>record</b> for the <b>rivalry card</b>:</p>
+      <ul><li>season totals, this season's and the all-time record, and the chance each outscores the other this week (from the simulation);</li>
+      <li><b>What decides it this week</b>: only the games where their picks differ, with how many points each result swings between them. Games already over are summed up in one line;</li>
+      <li>the all-time record season by season, and each one's biggest win over the other;</li>
+      <li><b>How they pick</b>: their usual rates of underdogs, home teams, NFL games and big favorites side by side (habits, not a forecast);</li>
+      <li>the running gap in season points, and the week-by-week scores.</li></ul>
       <p>The last row is Tarun's shadow card, compared only on the weeks it has played. <b>Swing games</b> are this week's games where the family is on opposite sides: the ones that decide bragging rights.</p>` },
     { id: 'lab', title: 'Pick Lab', keys: 'pick lab insights style consensus model race simulation what-if what if win odds chance league versus', body: `
       <p><b>This week's race</b> plays the rest of the week out 5,000 times, using every game's chance to cover (live during games). It shows each person's chance to win the family this week, expected score and likely range. With only one family card loaded, it's head to head against Tarun's shadow card.</p>

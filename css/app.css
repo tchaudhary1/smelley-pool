@@ -530,3 +530,9 @@ table.yoy td:last-child { white-space: nowrap; }
 .news-h { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
 .news-inj { gap: 8px 16px; margin-bottom: 6px; }
 .news-list a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }
+
+/* Head to head: names open the person's card */
+.matrix .plink-btn, .matrix .ch-btn { background: none; border: 0; padding: 2px 4px; margin: -2px -4px; border-radius: 8px; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.matrix .ch-btn { display: inline-flex; flex-direction: column; align-items: center; text-align: center; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+.matrix .plink-btn:hover span, .matrix .ch-btn:hover .ch-name { text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
+.matrix .plink-btn:focus-visible, .matrix .ch-btn:focus-visible { outline: 2px solid var(--gold); }
