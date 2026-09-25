@@ -15,7 +15,7 @@ import { gameState } from './live.js';
 
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
-// Field model from the season so far: per-entry projected mean and the league's weekly spread.
+// Field model: the league's weekly average and spread, and each entry's season total so far.
 export function fieldModel(league, uptoWeek) {
   const members = league?.members || [];
   const played = w => members.some(m => m.weeks[w] != null);
@@ -23,10 +23,11 @@ export function fieldModel(league, uptoWeek) {
   const all = members.flatMap(m => weeks.map(w => m.weeks[w]).filter(v => v != null));
   const L = all.length ? all.reduce((a, b) => a + b, 0) / all.length : 25;
   const S = all.length > 2 ? Math.sqrt(all.reduce((a, b) => a + (b - L) ** 2, 0) / (all.length - 1)) : 9;
-  const K = 4;   // shrinkage: a member's own average counts like 1 week in 4+n
+  // Everyone is projected at the league average. Scores don't carry over in this pool: a player's
+  // 2024 weekly average vs their 2025 average correlates 0.04, and 2025's first half vs its second
+  // half -0.05, so a hot start says nothing about this week.
   const proj = new Map(members.map(m => {
-    const own = weeks.map(w => m.weeks[w]).filter(v => v != null);
-    return [m.name, { mean: (own.reduce((a, b) => a + b, 0) + K * L) / (own.length + K), sd: S,
+    return [m.name, { mean: L, sd: S,
       season: m.weeks.slice(0, uptoWeek - 1).reduce((a, v) => a + (v || 0), 0) }];
   }));
   return { L, S, proj, size: members.length };

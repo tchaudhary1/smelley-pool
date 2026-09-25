@@ -18,7 +18,7 @@ export function buildBrief(P) {
   const members = fam.map(f => ({ f, picks: f.shadow ? week.shadow : week.picks?.[f.pool] }));
   const simE = k => sim?.entries.find(e => e.key === k);
   for (const { f, picks } of members) {
-    if (!picks) { out.push(`\n${f.short.toUpperCase()}: picks not loaded yet${simE(f.key) ? ` (projected from season so far: about ${f1(simE(f.key).mean)} points)` : ''}.`); continue; }
+    if (!picks) { out.push(`\n${f.short.toUpperCase()}: picks not loaded yet${simE(f.key) ? ` (projected at the league average: about ${f1(simE(f.key).mean)} points)` : ''}.`); continue; }
     const gr = gradeEntry(picks, week, live);
     const se = simE(f.key);
     const head = `${f.shadow ? "TARUN'S SHADOW CARD (unofficial, not in the league)" : f.short.toUpperCase()}: ${gr.banked} banked, ${gr.liveNow} covering live, max possible ${gr.maxPossible}, expected ${f1(gr.expected)}`

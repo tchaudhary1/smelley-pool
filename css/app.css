@@ -511,3 +511,16 @@ table.nb tr.me-row td { background: color-mix(in srgb, var(--gold) 14%, transpar
 table.yoy td.l:first-child { white-space: normal; min-width: 150px; line-height: 1.35; }
 table.yoy td:last-child { white-space: nowrap; }
 @media (max-width: 640px) { table.yoy td.l:first-child { font-size: 13px; } }
+
+/* Light/dark toggle in the header */
+.theme-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); color: #fff; font-size: 15px; line-height: 1; padding: 0; }
+.theme-btn:hover { background: rgba(255,255,255,.18); }
+@media (max-width: 640px) { .theme-btn { width: 30px; height: 30px; font-size: 14px; } }
+
+/* "A new version is ready" bar */
+.update-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 10px; background: var(--navy); color: #fff; border: 1px solid var(--gold); border-radius: 999px; padding: 8px 8px 8px 16px; box-shadow: var(--shadow); font-size: 14px; max-width: calc(100vw - 32px); }
+.update-bar button { background: var(--gold); color: var(--navy); border: 0; border-radius: 999px; padding: 6px 14px; font-weight: 700; }
+
+/* Pick Lab style cards */
+.offscript { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; background: var(--live-bg); color: var(--live); vertical-align: 1px; }
+.style-card .sr-v small { display: block; }

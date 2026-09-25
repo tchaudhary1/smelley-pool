@@ -57,15 +57,55 @@ async function onSetPassword(e) {
     S.user = S.user || await db.currentUser(); S.user ? start() : showLogin(); }
   catch (err) { $('#pwErr').textContent = err.message; }
 }
+// ---------- light / dark ----------
+// Follows the device until someone taps the header button; the choice is kept in this browser.
+const themeNow = () => document.documentElement.dataset.theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+function setTheme(t) {   // 'light' | 'dark' | null (match the device)
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  try { t ? localStorage.setItem('sp.theme', t) : localStorage.removeItem('sp.theme'); } catch { /* private mode: just this visit */ }
+  drawThemeBtn(); if (S.started) render();
+}
+function drawThemeBtn() {
+  const b = $('#themeBtn'); if (!b) return; const dark = themeNow() === 'dark';
+  b.textContent = dark ? '☀️' : '🌙'; b.title = dark ? 'Switch to light mode' : 'Switch to dark mode'; b.setAttribute('aria-label', b.title);
+}
+
+// ---------- "a new version is ready" ----------
+// The dashboard stays open for hours, so after a deploy it can keep running old code. Every 5
+// minutes, compare the server's app.js with the copy this page loaded; if it changed, offer a reload.
+async function watchVersion() {
+  if (db.LOCAL) return;
+  const stamp = r => r.headers.get('etag') || r.headers.get('last-modified');
+  let base; try { base = stamp(await fetch('js/app.js', { cache: 'force-cache' })); } catch { return; }
+  if (!base) return;
+  setInterval(async () => {
+    if (document.hidden || $('.update-bar')) return;
+    let now; try { now = stamp(await fetch('js/app.js', { method: 'HEAD', cache: 'no-store' })); } catch { return; }
+    if (!now || now === base) return;
+    const bar = document.createElement('div'); bar.className = 'update-bar'; bar.setAttribute('role', 'status');
+    bar.innerHTML = 'A new version of the dashboard is ready. <button type="button">Reload</button>';
+    bar.querySelector('button').onclick = async () => {   // refresh cached scripts and styles, then reload
+      const own = performance.getEntriesByType('resource').map(e => e.name).filter(u => u.startsWith(location.origin) && /\.(js|css)(\?|$)/.test(u));
+      await Promise.all(own.map(u => fetch(u, { cache: 'reload' }).catch(() => {})));
+      location.reload();
+    };
+    document.body.appendChild(bar);
+  }, 5 * 60e3);
+}
+
 function accountMenu() {
   const old = $('.menu'); if (old) { old.remove(); return; }
   const m = document.createElement('div'); m.className = 'menu';
   m.innerHTML = `<div class="who">${esc(S.user.email || fam(S.user.key)?.short || '')}</div>
+    <button data-a="theme">${themeNow() === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}</button>
+    ${document.documentElement.dataset.theme ? '<button data-a="theme-auto">Match my device\'s light/dark</button>' : ''}
     ${db.LOCAL ? '' : '<button data-a="pw">Set or change password</button>'}<button data-a="out">Sign out</button>`;
   document.body.appendChild(m);
   m.onclick = async ev => { const a = ev.target.dataset.a; if (!a) return; m.remove();
     if (a === 'out') { await db.signOut(); location.hash = ''; location.reload(); }
-    if (a === 'pw') showPasswordForm(); };
+    if (a === 'pw') showPasswordForm();
+    if (a === 'theme') setTheme(themeNow() === 'dark' ? 'light' : 'dark');
+    if (a === 'theme-auto') setTheme(null); };
   setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target) && ev.target.closest('#meChip') == null) { m.remove(); document.removeEventListener('click', off); } }), 0);
 }
 async function start() {
@@ -76,6 +116,9 @@ async function start() {
   $('#meChip').innerHTML = `${avatar(me)} ${esc(me?.short)} <span class="so" style="opacity:.6">▾</span>`;
   $('#meChip').title = 'Account';
   $('#meChip').onclick = accountMenu;
+  drawThemeBtn(); $('#themeBtn').onclick = () => setTheme(themeNow() === 'dark' ? 'light' : 'dark');
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { drawThemeBtn(); if (!document.documentElement.dataset.theme) render(); });
+  watchVersion();
   if (S.user.admin) $('#adminTab').classList.remove('hidden');
   $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.tab));
   // Show ‹ › on the tab bar whenever more tabs are hidden off that side.
@@ -452,12 +495,12 @@ function leagueSection() {
       <div class="race-sub">${e.group === 'shadow' ? 'Unofficial: ranked as if it were an entry' : `Season: ${now?.rankLabel ?? '–'} now → about #${L.seasonRank} after this week · season top-10 ${pct(L.pSeasonTop10)}`}</div></div></div>`; }).join('');
   const proj = fvl.projectedMembers.map(k => fam(k)?.short).filter(Boolean);
   const ifs = (sim.leagueWhatifs || []).slice(0, 3).map(w => describeWhatIf(w, S.week, simLabel)).filter(Boolean);
-  return `${title('Versus the league', `${n} entries · ${lgPicks ? `${lgPicks} with picks loaded, the rest` : 'other entries'} simulated from their season so far`)}
+  return `${title('Versus the league', `${n} entries · ${lgPicks ? `${lgPicks} with picks loaded, the rest` : 'other entries'} simulated at the league average`)}
     <div class="grid two">
       <div class="panel insight"><h3>🏟️ The family vs the league</h3>
         <div class="kv"><div><b>${fmt1(fvl.famAvg)}</b><span>Family average this week (projected)</span></div><div><b>${fmt1(fvl.lgAvg)}</b><span>Everyone else's average</span></div>
           <div><b>${pct(fvl.pFamAhead)}</b><span>Family beats the league average</span></div><div><b>${pct(fvl.pFamTop10)}</b><span>Someone in the family has a top-10 week</span></div></div>
-        ${proj.length ? `<p class="note">${esc(proj.join(', '))}: picks not in yet, so they're simulated from their season so far. This sharpens as sheets are uploaded.</p>` : ''}
+        ${proj.length ? `<p class="note">${esc(proj.join(', '))}: picks not in yet, so they're simulated at the league average (past scores don't predict the next week here). This sharpens as sheets are uploaded.</p>` : ''}
         ${ifs.length ? `<h4 class="lg-h">What-ifs</h4>${ifs.map(x => `<div class="whatif clickable" data-game="${x.favNo}">${esc(x.text)}</div>`).join('')}` : ''}</div>
       <div class="panel insight"><h3>📈 Each of us vs the league</h3>${rows || '<p class="muted">Appears once picks are loaded.</p>'}</div>
     </div>`;
@@ -487,30 +530,52 @@ function familyVsLeagueHistory(T) {
       <div><b>${bb} <span class="muted" style="font-size:13px">${bbRank}</span></b><span>"Team Smelley" best-ball (best family score each week) would rank</span></div></div>
     <div class="tbl-wrap"><table><thead><tr><th class="l">Week</th><th>Family</th><th>League</th><th>Diff</th><th class="l">Family best</th></tr></thead><tbody>${weeks}</tbody></table></div></div>`;
 }
+// ---------- pick style: this week vs each person's usual ----------
+// Style is what carries over in this pool (underdog share 2024 vs 2025 correlates 0.87, NFL 0.89,
+// home 0.81), while results don't (cover rate 0.04). So "this week vs their usual" means something
+// even from 10 picks, and a big departure is a real storyline. Home counts only games with a home team.
+const STYLE = [
+  { k: 'dog', label: 'Underdogs', phrase: 'underdogs', hit: r => r.side === 'dog' },
+  { k: 'home', label: 'Home teams', phrase: 'home teams', hit: r => r.g.home === r.side, base: r => r.g.home != null },
+  { k: 'nfl', label: 'NFL games', phrase: 'NFL games', hit: r => r.g.league === 'NFL' },
+  { k: 'bigFav', label: 'Big favorites (10+)', phrase: 'big favorites (10+)', hit: r => r.side === 'fav' && r.g.spread >= 10 },
+];
+function weekStyle(e) {
+  const rows = e.grade.rows.filter(r => r.g);
+  return Object.fromEntries(STYLE.map(s => { const b = rows.filter(s.base || (() => true)); return [s.k, { n: b.filter(s.hit).length, of: b.length }]; }));
+}
+function usual(f) {   // pooled past-season pick metrics for a family member, or null
+  if (!S.ctx || !f?.pool) return null;
+  S.usualCache ??= new Map();
+  if (!S.usualCache.has(f.pool)) S.usualCache.set(f.pool, scoutingReport(S.ctx, f.pool).career?.metrics || null);
+  return S.usualCache.get(f.pool);
+}
+const OFF_SCRIPT = 0.3;   // about 2 standard errors for a 10-pick week
+function styleCard(e) {
+  const w = weekStyle(e), m = usual(e.f), Z = S.ctx?.career.spread, lbl = S.ctx?.career.label;
+  const rows = e.grade.rows.filter(r => r.g);
+  const res = rows.map(r => S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no]).filter(Boolean);
+  const bars = STYLE.map(s => { const x = w[s.k], p = x.of ? x.n / x.of : 0, u = m?.[s.k].share, lg = Z?.[s.k]?.mu;
+    const off = u != null && x.of >= 8 && Math.abs(p - u) >= OFF_SCRIPT;
+    return `<div class="sr-row"><div class="sr-l">${s.label}${off ? `<span class="offscript">${p > u ? 'more' : 'fewer'} than usual</span>` : ''}</div>
+      <div class="sr-bar"><i style="width:${p * 100}%"></i>${u != null ? `<b style="left:${u * 100}%" title="Usually ${pct(u)}"></b>` : ''}</div>
+      <div class="sr-v">${x.n} of ${x.of}<small>${u != null ? `usually ${pct(u)}` : lg != null ? `league ${pct(lg)}` : ''}</small></div></div>`; }).join('');
+  return `<div class="panel insight clickable style-card" data-member="${e.f.key}"><h3>${avatar(e.f)} ${esc(e.f.short)}'s pick style${e.f.shadow ? ' <span class="shadow-tag">shadow</span>' : ''}</h3>
+    ${bars}
+    <p class="note" style="margin:4px 0 8px">${m ? `Bar = this week · gold tick = usual over ${lbl} (${m.n} picks)` : e.f.shadow ? 'Bar = this week · no past seasons for the shadow card' : S.ctx ? 'Bar = this week · no past seasons on file' : 'Bar = this week · loading past seasons…'}</p>
+    <div class="stat-row"><span>Average spread taken</span><span class="num">${fmt1(mean(rows.map(r => r.g.spread)))}</span></div>
+    <div class="stat-row"><span>Confidence on underdogs</span><span class="num">${rows.filter(r => r.side === 'dog').reduce((s, r) => s + r.conf, 0)} of 55</span></div>
+    <div class="stat-row"><span>Avg model cover chance <small class="muted">(${res.length} picks)</small></span><span class="num">${res.length ? pct(mean(res.map(r => r.p))) : '–'}</span></div></div>`;
+}
+
 function viewLab() {
   const E = entries().filter(e => e.picks);
-  const profile = e => {
-    const rows = e.grade.rows.filter(r => r.g);
-    const dogs = rows.filter(r => r.side === 'dog'), home = rows.filter(r => r.g.home === r.side), nfl = rows.filter(r => r.g.league === 'NFL');
-    const confOn = a => a.reduce((s, r) => s + r.conf, 0);
-    const res = rows.map(r => S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no]).filter(Boolean);
-    return { n: rows.length, dogs: dogs.length, dogConf: confOn(dogs), home: home.length, nfl: nfl.length, avgSpread: mean(rows.map(r => r.g.spread)),
-      bigDogs: rows.filter(r => r.side === 'dog' && r.g.spread >= 10).length, model: res.length ? mean(res.map(r => r.p)) : null, modelN: res.length };
-  };
-  const bar = (a, b, ca, cb) => `<div class="bar2"><i style="width:${a / (a + b || 1) * 100}%;background:${ca}"></i><i style="width:${b / (a + b || 1) * 100}%;background:${cb}"></i></div>`;
-  const profCards = E.map(e => { const p = profile(e);
-    return `<div class="panel insight clickable" data-member="${e.f.key}"><h3>${avatar(e.f)} ${esc(e.f.short)}'s pick style${e.f.shadow ? ' <span class="shadow-tag">shadow</span>' : ''}</h3>
-      <div class="stat-row"><span>Favorites / underdogs</span><span class="num">${p.n - p.dogs} / ${p.dogs}</span></div>${bar(p.n - p.dogs, p.dogs, 'var(--navy)', 'var(--rust)')}
-      <div class="stat-row"><span>Home / road</span><span class="num">${p.home} / ${p.n - p.home}</span></div>${bar(p.home, p.n - p.home, 'var(--slate)', 'var(--gold)')}
-      <div class="stat-row"><span>NFL / college</span><span class="num">${p.nfl} / ${p.n - p.nfl}</span></div>${bar(p.nfl, p.n - p.nfl, 'var(--win)', 'var(--live)')}
-      <div class="stat-row"><span>Average spread taken</span><span class="num">${fmt1(p.avgSpread)}</span></div>
-      <div class="stat-row"><span>Confidence on underdogs</span><span class="num">${p.dogConf} of 55</span></div>
-      <div class="stat-row"><span>Avg model cover chance <small class="muted">(${p.modelN} picks)</small></span><span class="num">${p.model == null ? '–' : pct(p.model)}</span></div></div>`; }).join('');
+  if (!S.ctx) ensureHistory().then(() => { if (S.tab === 'lab' && !$('.modal')) render(); }).catch(() => {});
   $('#main').innerHTML = `${title('Pick Lab', `Week ${S.week.week}: what everyone's betting on, and how the numbers see it`)}
     ${raceSection()}
     ${leagueSection()}
     ${title('Storylines')}<div class="grid two">${insights(E)}</div>
-    ${title('Pick styles')}<div class="grid two">${profCards || '<div class="panel empty">No picks loaded yet.</div>'}</div>
+    ${title('Pick styles', 'This week against each person\'s usual. Style is the one thing that carries over from season to season here')}<div class="grid two">${E.map(styleCard).join('') || '<div class="panel empty">No picks loaded yet.</div>'}</div>
     ${title('Consensus board', 'Every game with at least one family pick')}
     <div class="panel tbl-wrap">${consensusTable()}</div>
     ${S.week.shadow ? `${title('The shadow card', 'Watson–Tarun, built from multi-book lines and power ratings. Unofficial')}<div class="panel" style="padding:8px 14px">${shadowList()}</div>` : ''}`;
@@ -537,7 +602,41 @@ function insights(E) {
   if (early) out.push(card('⏱️', 'Early sweat', `${esc(early.e.f.short)}'s ${early.conf} on ${esc(sideName(early.g, early.side))} goes before Saturday. ${early.st.state === 'post' ? (early.status === 'won' ? 'Already banked.' : 'Already gone. No lead is safe.') : early.st.state === 'in' ? `Live: ${esc(early.st.detail)}.` : ''}`, early.g.fav_no));
   if (modelFav) out.push(card('📈', 'The model\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover, per the model.`, modelFav.g.fav_no));
   if (modelHate && modelHate !== modelFav) out.push(card('📉', 'The model disagrees', `${esc(modelHate.e.f.short)}'s ${esc(sideName(modelHate.g, modelHate.side))} ${sideSpread(modelHate.g, modelHate.side)}: only <b>${pct(modelHate.m.p)}</b> by the model. Prove it wrong.`, modelHate.g.fav_no));
+  out.push(...historyStorylines(E));
   return out.join('');
+}
+// Storylines from past seasons and from the rest of the league's cards this week. Past results are
+// trivia (they don't predict here); styles and the crowd are facts about this week.
+function historyStorylines(E) {
+  const out = [], fam = E.filter(e => !e.f.shadow && e.f.pool);
+  const card = (icon, h, p, game) => `<div class="panel insight ${game ? 'clickable' : ''}" ${game ? `data-game="${game}"` : ''}><h3>${icon} ${h}</h3><p>${p}</p></div>`;
+  const lbl = S.ctx?.career.label;
+  // Off-script: the biggest departure from someone's usual style.
+  let off = null;
+  for (const e of fam) { const w = weekStyle(e), m = usual(e.f); if (!m) continue;
+    for (const s of STYLE) { const x = w[s.k]; if (x.of < 8) continue; const d = x.n / x.of - m[s.k].share;
+      if (Math.abs(d) >= OFF_SCRIPT && (!off || Math.abs(d) > Math.abs(off.d))) off = { e, s, x, d, u: m[s.k].share }; } }
+  if (off) out.push(card('🔀', 'Off-script', `${esc(off.e.f.short)} usually puts ${pct(off.u)} of picks on ${off.s.phrase}. This week: <b>${off.x.n} of ${off.x.of}</b>. Pick style barely changes from year to year in this pool, so this is a real change of approach.`));
+  // For the record: the most unusual 10s history among this week's 10s.
+  const tens = fam.map(e => ({ e, m: usual(e.f), r: e.grade.rows.find(r => r.conf === 10 && r.g) })).filter(x => x.m?.tens.n >= 10 && x.r)
+    .sort((a, b) => Math.abs(b.m.tens.cover - 0.5) - Math.abs(a.m.tens.cover - 0.5));
+  const t = tens[0];
+  if (t) out.push(card('🗂️', 'For the record', `${esc(t.e.f.short)}'s 10s have covered <b>${pct(t.m.tens.cover)}</b> over ${t.m.tens.n} weeks (${lbl}). This week's 10: ${esc(sideName(t.r.g, t.r.side))} ${sideSpread(t.r.g, t.r.side)}. Past 10s haven't predicted the next one here, so it's trivia, not a jinx.`, t.r.g.fav_no));
+  // Against the crowd: a family pick most of the league's loaded cards went the other way on.
+  const famNames = new Set(FAMILY.map(f => f.pool).filter(Boolean));
+  const league = Object.entries(S.week.picks || {}).filter(([n]) => !famNames.has(n)).map(([, p]) => Object.values(p.conf));
+  if (league.length >= 20) {
+    const lone = fam.flatMap(e => e.grade.rows.filter(r => r.g).map(r => {
+      const mine = r.side === 'fav' ? r.g.fav_no : r.g.dog_no, other = r.side === 'fav' ? r.g.dog_no : r.g.fav_no;
+      const withMe = league.filter(c => c.includes(mine)).length, against = league.filter(c => c.includes(other)).length;
+      return { e, r, withMe, n: withMe + against };
+    })).filter(x => x.n >= 10 && x.withMe / x.n < 0.35).sort((a, b) => b.r.conf - a.r.conf || a.withMe / a.n - b.withMe / b.n)[0];
+    if (lone) {
+      const past = S.ctx ? Object.entries(S.ctx.seasons).sort((a, b) => b[0] - a[0]).map(([y, s]) => { const c = s.rows.filter(r => r.nGame >= 5 && r.pop < 0.35); return c.length ? `${pct(c.filter(r => r.covered).length / c.length)} in ${y}` : null; }).filter(Boolean) : [];
+      out.push(card('🧭', 'Against the crowd', `${esc(lone.e.f.short)}'s ${lone.r.conf} on ${esc(sideName(lone.r.g, lone.r.side))} ${sideSpread(lone.r.g, lone.r.side)}: only <b>${lone.withMe} of ${lone.n}</b> league cards on this game agree.${past.length ? ` League-wide, picks like that covered ${past.join(' and ')}: no edge either way.` : ''}`, lone.r.g.fav_no));
+    }
+  }
+  return out;
 }
 function consensusTable() {
   const games = S.week.games.map(g => ({ g, on: allEntriesForGame(g) })).filter(x => x.on.fav.length || x.on.dog.length)

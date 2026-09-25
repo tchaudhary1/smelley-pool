@@ -17,6 +17,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/app.css">
+  <!-- Saved light/dark choice, applied before first paint (otherwise the device setting is used). -->
+  <script>try { var t = localStorage.getItem('sp.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
 <body>
   <section id="login" class="hidden">
@@ -59,6 +61,7 @@
         </div>
         <div class="top-right">
           <span class="live-dot" id="liveDot"><i></i><span id="liveTxt">—</span></span>
+          <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch light or dark mode" title="Light or dark"></button>
           <button class="me-chip" id="meChip" title="Sign out"></button>
         </div>
       </div>

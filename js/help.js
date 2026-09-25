@@ -23,6 +23,9 @@ export const HELP = [
       <li>Everything refreshes on its own: about every minute while games are live, every few minutes otherwise. Pull down (phone) or reload to refresh right away.</li></ul>` },
   ]},
   { group: 'Sign-in trouble', topics: [
+    { id: 'theme', title: 'Light or dark mode', keys: 'dark mode light mode theme night colors brightness sun moon', body: `
+      <p>Tap the <b>🌙 / ☀️</b> button at the top right, next to your name, to switch between light and dark. It's also in the menu under your name.</p>
+      <p>Until you choose, the dashboard follows your phone or computer's own light/dark setting. Your choice is remembered on that device; to go back to following the device, pick <b>Match my device's light/dark</b> from the menu under your name.</p>` },
     { id: 'noemail', title: 'The sign-in or reset email never arrived', keys: 'email not received spam junk missing link', body: `
       <ul><li>Check your spam or junk folder, and the Promotions tab in Gmail. It comes from Supabase, the service that runs the logins.</li>
       <li>Wait a few minutes. The free email service sends only a handful of emails per hour for the whole family, so a busy moment can delay it.</li>
@@ -38,7 +41,7 @@ export const HELP = [
     { id: 'toomany', title: '"Too many emails just now"', keys: 'rate limit too many emails', body: `
       <p>The free email service has an hourly limit. Wait a little while and try again, or sign in with your password if you have one.</p>` },
     { id: 'stuck', title: 'The page looks stuck, blank or out of date', keys: 'blank stuck loading refresh cache old update', body: `
-      <ul><li>Pull down to refresh (phone), or press <b>Ctrl+F5</b> or <b>Cmd+Shift+R</b> (computer). After an update to the site, one refresh picks up the new version.</li>
+      <ul><li>Pull down to refresh (phone), or press <b>Ctrl+F5</b> or <b>Cmd+Shift+R</b> (computer). After an update to the site, one refresh picks up the new version. If the dashboard has been open a while, a bar at the bottom says when a new version is ready; tap <b>Reload</b>.</li>
       <li>Still stuck? Sign out from the menu under your name and sign back in.</li>
       <li>"Couldn't load pool data" usually means a weak connection; try again in a minute.</li></ul>` },
   ]},
@@ -81,7 +84,13 @@ export const HELP = [
       <p><b>This week's race</b> plays the rest of the week out 5,000 times, using every game's chance to cover (live during games). It shows each person's chance to win the family this week, expected score and likely range. With only one family card loaded, it's head to head against Tarun's shadow card.</p>
       <p><b>What-ifs that matter most</b> are the unfinished games that move those chances the most: "If Georgia covers, Jamie's chance goes from 32% to 53%." Think of them as a rooting guide. Tap one to open the game.</p>
       <p><b>Versus the league</b> ranks each of us among all the league's entries: likely rank this week, chance of a top-10 week, chance of a top-quarter week, and where the season ranking is headed after this week. <b>The family vs the league</b> pits the family's average against everyone else's, with its own what-ifs.</p>
-      <p><b>Storylines</b> (boldest pick, loneliest pick, family consensus, what the model likes and doesn't), <b>pick styles</b> (favorites vs underdogs, home vs road, NFL vs college), the <b>consensus board</b> of every game with a family pick, and <b>the shadow card</b> round it out.</p>` },
+      <p><b>Storylines</b>: boldest pick, loneliest pick, family consensus, what the model likes and doesn't, plus three drawn from history and the league:</p>
+      <ul><li><b>Off-script</b>: someone picking very differently from their usual (say, twice their normal share of underdogs).</li>
+      <li><b>For the record</b>: a 10-point pick next to that person's two-season record with 10s. Trivia, not a forecast.</li>
+      <li><b>Against the crowd</b>: a family pick that most of the league's cards went the other way on, with how picks like that have done.</li></ul>
+      <p><b>Pick styles</b> show this week's underdogs, home teams, NFL games and big favorites as a bar, with a gold tick at that person's usual rate over past seasons. "More/fewer than usual" flags a big departure.</p>
+      <p><b>Why "usual" and not "hot streak"?</b> Over two seasons of this pool, how someone <i>picks</i> barely changed from year to year (their underdog share in 2024 and 2025 correlates 0.87), but how they <i>scored</i> didn't carry over at all (0.04). So the Lab treats style as real and past results as trivia, and the Commentator does too.</p>
+      <p>The <b>consensus board</b> of every game with a family pick, and <b>the shadow card</b>, round it out.</p>` },
     { id: 'talk', title: 'Smack Talk', keys: 'chat smack talk message reactions emoji mention tag delete', body: `
       <ul><li>Type a message and press <b>Enter</b> (Shift+Enter for a new line), or tap Send (the gold ➤ on a phone). On a phone the chat fills the screen and stays above the keyboard.</li>
       <li>Type <b>@</b> to mention someone: a menu pops up with the family and the Commentator. Keep typing to narrow it down, then tap a name or press Enter or Tab. Mentions are highlighted, and yours get a gold outline.</li>
@@ -119,7 +128,7 @@ export const HELP = [
       <p>Once a game kicks off, its pregame line is frozen and the live score takes over. It isn't a crystal ball: even its favorite picks are only about 53–55% to cover.</p>` },
     { id: 'sim', title: 'Win odds, rankings and what-ifs', keys: 'simulation simulated 5000 projected field model league odds rank top 10 top quarter', body: `
       <p>Every refresh, the dashboard plays the rest of the week out 5,000 times with those cover chances (finished games are fixed). From that come each person's family win odds, head-to-head odds, likely score range, league rank and top-10 chances, and the what-ifs.</p>
-      <p><b>League entries whose picks aren't uploaded</b>, and <b>family members whose picks aren't in yet</b> (marked "projected"), are simulated from their season so far, pulled strongly toward the league average because a few weeks is a tiny sample. As pick sheets are uploaded, real picks replace those guesses and everything sharpens.</p>` },
+      <p><b>League entries whose picks aren't uploaded</b>, and <b>family members whose picks aren't in yet</b> (marked "projected"), are simulated as an average league entry. That isn't laziness: over two seasons, a player's scores in one stretch said essentially nothing about the next (2024 vs 2025 averages correlate 0.04; the first half of 2025 vs the second half, −0.05). As pick sheets are uploaded, real picks replace those guesses and everything sharpens.</p>` },
     { id: 'numbers', title: 'Where the data comes from', keys: 'data espn scores update frequency live delay time zone', body: `
       <ul><li><b>Scores and lines</b> come from ESPN's public scoreboard and refresh about every minute while games are live. They can lag a TV broadcast by 30 seconds or so.</li>
       <li><b>Times</b> are shown in Eastern Time.</li>
@@ -169,7 +178,7 @@ export const HELP = [
         <dt>What-if</dt><dd>How one game's result changes a chance: "if Georgia covers, 32% becomes 53%".</dd>
         <dt>Percentile</dt><dd>Share of the league you're ahead of: 90 means better than 90% of entries.</dd>
         <dt>Best-ball</dt><dd>Taking the family's single best score each week, as if the family were one entry.</dd>
-        <dt>Projected</dt><dd>Simulated from someone's season so far because their picks for this week aren't loaded yet.</dd>
+        <dt>Projected</dt><dd>Simulated as an average league entry because their picks for this week aren't loaded yet.</dd>
         <dt>Cover rate</dt><dd>The share of someone's picks that covered. Around 50% is normal; a few points either way over one season is mostly luck.</dd>
         <dt>Contrarian pick</dt><dd>A side that under 35% of the league took that week.</dd>
         <dt>Ordering edge</dt><dd>Points a week gained (or lost) from where someone puts their confidence, compared with spreading the same picks' points at random.</dd>
