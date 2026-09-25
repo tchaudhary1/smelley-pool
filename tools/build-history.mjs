@@ -42,7 +42,9 @@ const norm = s => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').repl
 function variants(name0, league) {
   // Clean typos/shorthand seen in real sheets before generating spellings.
   const name = name0.replace(/\.+$/, '').replace(/\(/g, ' (').replace(/\s+/g, ' ').trim()
-    .replace(/^CINCINNAT I$/i, 'Cincinnati').replace(/^INDIANOPOLIS$/i, 'Indianapolis').replace(/^Appalachian\.? St\.?$/i, 'App State');
+    .replace(/^CINCINNAT I$/i, 'Cincinnati').replace(/^INDIANOPOLIS$/i, 'Indianapolis').replace(/^Appalachian\.? St\.?$/i, 'App State')
+    .replace(/^DETRIOT$/i, 'Detroit').replace(/^APPL?ACHIAN\.? ST\.?$/i, 'App State').replace(/^PHILADEPHIA$/i, 'Philadelphia')
+    .replace(/^L\.?A\.? Rams$/i, 'Los Angeles Rams').replace(/^L\.?A\.? Chargers$/i, 'Los Angeles Chargers').replace(/^Miami-OH$/i, 'Miami (OH)').replace(/^Fl\. Atlantic$/i, 'Florida Atlantic');
   const v = new Set([name]);
   const a = ALIAS[league]?.[name]; if (a) v.add(a);
   let s = name.replace(/\.\s*/g, '. ').replace(/\s+/g, ' ').trim();
@@ -85,16 +87,21 @@ function parseStandings(f) {
   const hdr = rows[hi].map(c => String(c).trim()); const col = {};
   hdr.forEach((h, i) => { const m = h.match(/^week\s*(\d+)$/i); if (m && !(m[1] in col)) col[m[1]] = i; });
   const find = re => hdr.findIndex(h => re.test(h));
-  const cTot = find(/1-19\s*totals/i), cGuru = find(/1-19\s*guru/i), cBowl = find(/^bowls$/i), cSeason = find(/seasonal\s*totals?$/i), cSRank = find(/seasonal\s*guru/i);
+  // 2025 layout: "1-19 Totals", "1-19 Guru", "Bowls", "Seasonal Totals", "Seasonal Guru".
+  // 2024 layout: weeks, "Bowls", "Total" (weeks + bowls), "Rank"; the 1-19 total and rank get computed.
+  const firstOf = (...res) => { for (const re of res) { const i = find(re); if (i >= 0) return i; } return -1; };
+  const cTot = find(/1-19\s*totals/i), cGuru = find(/1-19\s*guru/i), cBowl = find(/^bowls$/i), cSeason = firstOf(/seasonal\s*totals?$/i, /^total$/i), cSRank = firstOf(/seasonal\s*guru/i, /^rank$/i);
   const out = [];
   for (const r of rows.slice(hi + 1)) { const name = String(r[0] || '').trim(); if (!name || /^name$/i.test(name) || /weekly scores/i.test(name)) continue;
     const num = i => (i >= 0 && r[i] !== '' ? Number(r[i]) : null);
-    out.push({ name, weeks: Array.from({ length: 19 }, (_, w) => num(col[w + 1] ?? -1)), total: num(cTot), guruRank: num(cGuru), bowls: num(cBowl), season: num(cSeason), seasonRank: num(cSRank) }); }
+    const weeks = Array.from({ length: 19 }, (_, w) => num(col[w + 1] ?? -1));
+    out.push({ name, weeks, total: cTot >= 0 ? num(cTot) : weeks.reduce((a, b) => a + (b ?? 0), 0), guruRank: num(cGuru), bowls: num(cBowl), season: num(cSeason), seasonRank: num(cSRank) }); }
+  if (cGuru < 0) for (const e of out) e.guruRank = 1 + out.filter(o => o.total > e.total).length;
   return out;
 }
 
 // ---------------------------------------------------------------- build
-const standings = parseStandings(files.find(f => /end of season/i.test(f)));
+const standings = parseStandings(files.find(f => /end of season/i.test(f)) || files.find(f => /scores and rankings/i.test(f)));
 const official = new Map(standings.map(s => [s.name, s]));
 const weeks = []; const report = [];
 for (let w = 1; w <= 19; w++) {
@@ -138,20 +145,36 @@ console.log(`wrote local-data/history${SEASON}-raw.json and -report.json`);
 
 // ---------------------------------------------------------------- bowls
 async function buildBowls() {
-  const oddsF = files.filter(f => /bowl/i.test(f) && /odds/i.test(f)).sort((a, b) => /amended/i.test(b) - /amended/i.test(a))[0];
-  const matF = files.find(f => /auto calculate matrix/i.test(f));
-  if (!oddsF || !matF) return null;
-  const text = await docText(oddsF);
+  // Several amended versions can exist (quarterfinal and semifinal updates): keep the odds sheet with the
+  // most games actually lined, and the pick workbook whose bowl totals agree best with the official scores.
+  let oddsF = null, games = [], best = -1;
+  for (const f of files.filter(f => /bowl/i.test(f) && /odds/i.test(f))) {
+    const g = parseBowlOdds(await docText(f)); const n = g.filter(x => x.fav).length + (/amended/i.test(f) ? 0.5 : 0);
+    if (n > best) { best = n; oddsF = f; games = g; }
+  }
+  let res = null, bestOk = -1;
+  for (const f of files.filter(f => /auto calculate/i.test(f) && /\.xlsx?$/i.test(f))) {
+    const r = bowlPicks(f); const ok = Object.entries(r.points).filter(([n, p]) => official.get(n)?.bowls === p).length;
+    if (ok > bestOk) { bestOk = ok; res = { ...r, matrixFile: f }; }
+  }
+  if (!oddsF || !res) return null;
+  return { oddsFile: oddsF, games, ...res };
+}
+function parseBowlOdds(text) {
   const games = []; let hdr = null;
   for (const line of text.split(/\r?\n/)) {
     const h = line.match(/(\d+)-POINT\s*(?:GAME)?\s*\(([^)]+)\)\s*(.*)$/i);
     if (h) { flush(); hdr = { points: +h[1], name: h[2].trim().replace(/\s+/g, ' '), when: h[3].trim() }; continue; }
     const g = parseOdds(line)[0];
+    if (g && /^tbd$/i.test(g.fav)) continue;                                  // not lined yet
     if (g && hdr) { games.push({ ...g, points: hdr.points, bowl: hdr.name, when: hdr.when }); hdr = null; }
   }
   flush();
   // A bowl announced without a line yet (e.g. the title game, lined later by email).
   function flush() { if (hdr) games.push({ fav_no: hdr.points * 2 - 1, dog_no: hdr.points * 2, fav: null, dog: null, spread: null, points: hdr.points, bowl: hdr.name, when: hdr.when }); hdr = null; }
+  return games;
+}
+function bowlPicks(matF) {
   const wb = XLSX.readFile(path.join(DIR, matF));
   const rows = XLSX.utils.sheet_to_json(wb.Sheets['Picks'], { header: 1, defval: '' });
   const hdrRow = rows[1], winRow = rows[0];
@@ -166,7 +189,7 @@ async function buildBowls() {
     picks[name] = p; points[name] = gameCols.reduce((s, [k], j) => s + (p[j] != null && p[j] === winners[k] ? k : 0), 0);
     tb[name] = Number.isFinite(+r[stop]) && r[stop] !== '' ? +r[stop] : null;
   }
-  return { oddsFile: oddsF, games, winners, picks, points, tiebreakers: tb, maxPoints: gameCols.reduce((s, [k]) => s + k, 0) };
+  return { winners, picks, points, tiebreakers: tb, maxPoints: gameCols.reduce((s, [k]) => s + k, 0) };
 }
 const bowls = await buildBowls();
 
@@ -180,7 +203,7 @@ const flagged = [];
 const archive = {
   season: SEASON, built: new Date().toISOString(),
   entries: standings.map(s => ({ name: s.name, weeks: s.weeks, total: s.total, guruRank: s.guruRank, bowls: s.bowls, season: s.season, seasonRank: s.seasonRank })),
-  winners: parseWinners(files.find(f => /weekly winners/i.test(f))),
+  winners: parseWinners(files.find(f => /weekly winners/i.test(f)) || files.find(f => /winners/i.test(f))),
   weeks: weeks.map(w => {
     const picks = {};
     for (const [n, p] of Object.entries(w.picks || {})) {
@@ -203,7 +226,7 @@ if (bowls) {
 function parseWinners(f) {
   if (!f) return null; const rows = sheetRows(f); const out = { weeks: {}, awards: {} }; let section = 'weeks';
   for (const r of rows) {
-    const k = String(r[0] || '').trim(); const names = r.slice(1).map(x => String(x || '').trim()).filter(Boolean);
+    const k0 = String(r[0] || '').trim(); const k = /^season$/i.test(k0) ? 'Guru Season' : k0; /* 2024 labels it "Season" */ const names = r.slice(1).map(x => String(x || '').trim()).filter(Boolean);
     if (/^week\s*(\d+)/i.test(k)) out.weeks[+k.match(/\d+/)[0]] = names.map(canon);
     else if (/^(guru|bowls?)/i.test(k)) { section = k; if (names.length && !/^1st/i.test(names[0])) out.awards[k] = names.map(canon); }
     else if (!k && names.length && !/^1st/i.test(names[0]) && section) out.awards[section] = names.map(canon);

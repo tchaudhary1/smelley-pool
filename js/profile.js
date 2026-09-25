@@ -29,7 +29,7 @@ function pickRows(archive) {
 function metrics(rows) {
   const n = rows.length; if (!n) return null;
   const rate = f => { const s = rows.filter(f); return { n: s.length, share: s.length / n, cover: s.length ? s.filter(r => r.covered).length / s.length : null }; };
-  const weeks = {}; for (const r of rows) (weeks[r.week] ??= []).push(r);
+  const weeks = {}; for (const r of rows) (weeks[`${r.season ?? ''}-${r.week}`] ??= []).push(r);
   let orderEdge = 0; const wk = Object.values(weeks);
   for (const ps of wk) { const k = ps.filter(r => r.covered).length; const pts = ps.filter(r => r.covered).reduce((s, r) => s + r.conf, 0); orderEdge += pts - k * (ps.reduce((s, r) => s + r.conf, 0) / ps.length); }
   const tens = rows.filter(r => r.conf === 10);
@@ -49,19 +49,29 @@ function metrics(rows) {
 }
 
 // ---------------------------------------------------------------- context (built once)
+function summarize(rows) {
+  const byName = {}; for (const r of rows) (byName[r.name] ??= []).push(r);
+  const per = Object.fromEntries(Object.entries(byName).map(([n, rs]) => [n, metrics(rs)]));
+  // league baselines: pooled rates, and the spread of individual tendencies (for "stands out")
+  const pooled = metrics(rows);
+  const keys = ['dog', 'home', 'nfl', 'bigFav', 'bigDog', 'contrarian', 'chalk'];
+  const spread = {}; for (const k of keys) { const v = Object.values(per).filter(m => m.n >= 60).map(m => m[k].share); const mu = v.reduce((a, b) => a + b, 0) / v.length; spread[k] = { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) }; }
+  return { rows, per, pooled, spread };
+}
+const yrLabel = yrs => yrs.length > 1 ? `${yrs[0]}–${String(yrs[yrs.length - 1]).slice(2)}` : String(yrs[0] ?? '');
+
 export function buildContext({ archives = {}, league = null, family = [] }) {
   const seasons = {};
-  for (const [yr, a] of Object.entries(archives)) {
-    const rows = pickRows(a);
-    const byName = {}; for (const r of rows) (byName[r.name] ??= []).push(r);
-    const per = Object.fromEntries(Object.entries(byName).map(([n, rs]) => [n, metrics(rs)]));
-    // league baselines: pooled rates, and the spread of individual tendencies (for "stands out")
-    const pooled = metrics(rows);
-    const keys = ['dog', 'home', 'nfl', 'bigFav', 'bigDog', 'contrarian', 'chalk'];
-    const spread = {}; for (const k of keys) { const v = Object.values(per).filter(m => m.n >= 60).map(m => m[k].share); const mu = v.reduce((a, b) => a + b, 0) / v.length; spread[k] = { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) }; }
-    seasons[yr] = { archive: a, rows, per, pooled, spread };
-  }
-  return { seasons, league, family };
+  for (const [yr, a] of Object.entries(archives)) seasons[yr] = { archive: a, ...summarize(pickRows(a)) };
+  // Every season pooled ("career"): the same person can be spelled differently from year to year,
+  // so rows are keyed by the newest season's spelling.
+  const yrs = Object.keys(seasons).sort();
+  const canon = [], memo = new Map();
+  const key = n => { if (memo.has(n)) return memo.get(n); const c = canon.find(x => samePerson(x, n)) || (canon.push(n), n); memo.set(n, c); return c; };
+  const all = [];
+  for (const yr of [...yrs].reverse()) for (const r of seasons[yr].rows) all.push({ ...r, name: key(r.name), season: +yr });
+  const career = { ...summarize(all), years: yrs.map(Number), label: yrLabel(yrs) };
+  return { seasons, career, league, family };
 }
 
 function findIn(names, name) { return names.find(n => n === name) || names.find(n => samePerson(n, name)) || null; }
@@ -88,10 +98,13 @@ export function scoutingReport(ctx, name) {
     out.seasons.push({ season: +yr, entry: ent || null, metrics: m, weekly: { mean, sd, best: weeks.length ? Math.max(...weeks) : null, worst: weeks.length ? Math.min(...weeks) : null, leagueAvg: lgAvg,
       firstHalf: half ? weeks.slice(0, half).reduce((a, b) => a + b, 0) / half : null, secondHalf: half ? weeks.slice(half).reduce((a, b) => a + b, 0) / (weeks.length - half) : null },
       top4, bowls: bowlPts != null ? { points: bowlPts, rank: bowlRank, of: Object.keys(A.bowls.points).length, max: A.bowls.maxPoints } : null, entries: A.entries.length });
-    if (m && yr === yrs[0]) out.quirks = quirks(m, S);
   }
-  const last = out.seasons[0];
-  out.caveat = last?.metrics ? `Based on ${last.metrics.n} graded picks over ${last.metrics.weeksPicked} weeks of ${last.season}: patterns, not guarantees. A difference of a few percentage points is noise at this sample size.` : 'No past pick data for this player yet.';
+  // Tendencies come from every season pooled: twice the sample beats one year's noise.
+  const C = ctx.career, ck = C ? findIn(Object.keys(C.per), name) : null, cm = ck ? C.per[ck] : null;
+  const pickYears = out.seasons.filter(s => s.metrics).map(s => s.season).sort();
+  if (cm) out.quirks = quirks(cm, C);
+  out.career = cm ? { metrics: cm, label: yrLabel(pickYears), years: pickYears, finishes: out.seasons.filter(s => s.entry).map(s => ({ season: s.season, rank: s.entry.seasonRank ?? s.entry.guruRank, of: s.entries })) } : null;
+  out.caveat = cm ? `Tendencies are based on ${cm.n.toLocaleString()} graded picks over ${cm.weeksPicked} weeks (${pickYears.join(' and ')}): patterns, not guarantees. A difference of a few percentage points is noise at this sample size.` : 'No past pick data for this player yet.';
   out.neighborhood = neighborhood(ctx, name);
   out.lessons = lessons(ctx, name, out.neighborhood);
   return out;
@@ -122,17 +135,19 @@ function neighborhood(ctx, name) {
   const sorted = [...L.members].sort((a, b) => tot(b) - tot(a));
   const i = sorted.findIndex(m => m.name === name || samePerson(m.name, name)); if (i < 0) return null;
   const rank = m => 1 + L.members.filter(o => tot(o) > tot(m)).length;
-  const yr = Object.keys(ctx.seasons).sort().pop(); const S = yr ? ctx.seasons[yr] : null;
-  const card = m => { const pk = S ? findIn(Object.keys(S.per), m.name) : null; const e = S ? S.archive.entries.find(x => samePerson(x.name, m.name)) : null;
-    return { name: m.name, rank: rank(m), tied: L.members.filter(o => tot(o) === tot(m)).length > 1, total: tot(m), gap: tot(m) - tot(sorted[i]), lastSeason: e ? { rank: e.seasonRank ?? e.guruRank, total: e.total } : null, metrics: pk ? S.per[pk] : null }; };
+  const yrs = Object.keys(ctx.seasons).sort(), yr = yrs[yrs.length - 1]; const S = yr ? ctx.seasons[yr] : null; const C = ctx.career;
+  const finish = (y, n) => { const e = ctx.seasons[y].archive.entries.find(x => x.name === n || samePerson(x.name, n)); return e ? { season: +y, rank: e.seasonRank ?? e.guruRank, total: e.total } : null; };
+  const card = m => { const pk = C ? findIn(Object.keys(C.per), m.name) : null; const e = S ? S.archive.entries.find(x => samePerson(x.name, m.name)) : null;
+    return { name: m.name, rank: rank(m), tied: L.members.filter(o => tot(o) === tot(m)).length > 1, total: tot(m), gap: tot(m) - tot(sorted[i]), lastSeason: e ? { rank: e.seasonRank ?? e.guruRank, total: e.total } : null,
+      past: yrs.map(y => finish(y, m.name)), metrics: pk ? C.per[pk] : null }; };
   const above = sorted.slice(Math.max(0, i - 3), i).map(card), below = sorted.slice(i + 1, i + 4).map(card);
-  return { me: card(sorted[i]), above, below, season: yr ? +yr : null };
+  return { me: card(sorted[i]), above, below, season: yr ? +yr : null, seasons: yrs.map(Number) };
 }
 
 // What separates the player from those ranked above, tied to whether it worked league-wide.
 function lessons(ctx, name, nb) {
   const out = []; if (!nb?.me?.metrics) return out;
-  const yr = Object.keys(ctx.seasons).sort().pop(); const P = ctx.seasons[yr].pooled;
+  const P = ctx.career.pooled, yr = ctx.career.label;
   const group = nb.above.filter(x => x.metrics && x.metrics.n >= 60); if (!group.length) return out;
   const avg = f => group.reduce((s, x) => s + f(x.metrics), 0) / group.length;
   const me = nb.me.metrics, names = group.map(x => x.name.split(' ')[0]).join(', ');
@@ -165,17 +180,20 @@ export function reportText(rep) {
     L.push(`${s.season}: ${e ? `finished rank ${e.seasonRank ?? e.guruRank} of ${s.entries} (weeks total ${e.total}${e.bowls != null ? `, bowls ${e.bowls}` : ''})` : 'not in the standings'}; weekly average ${w.mean != null ? r1(w.mean) : 'n/a'} (league ${r1(w.leagueAvg)}), best ${w.best}, worst ${w.worst}, first half ${w.firstHalf != null ? r1(w.firstHalf) : 'n/a'} vs second half ${w.secondHalf != null ? r1(w.secondHalf) : 'n/a'}${s.top4.length ? `; weekly top-4 finishes: ${s.top4.map(t => `week ${t.week} (#${t.place})`).join(', ')}` : ''}${s.bowls ? `; bowl pool ${s.bowls.points}/${s.bowls.max}, rank ${s.bowls.rank} of ${s.bowls.of}` : ''}.`);
     if (m) L.push(`  picks: ${m.n} graded, covered ${pct(m.cover)}; underdogs ${pct(m.dog.share)} of picks (covered ${pct(m.dog.cover)}), home ${pct(m.home.share)}, NFL ${pct(m.nfl.share)}; high-confidence 8-10 covered ${pct(m.top.cover ?? 0)}, low 1-3 covered ${pct(m.low.cover ?? 0)}; 10s covered ${m.tens.cover != null ? pct(m.tens.cover) : 'n/a'}; ordering edge ${r1(m.orderEdgePerWeek)} pts/week; contrarian share ${pct(m.contrarian.share)}.`);
   }
-  if (rep.quirks.length) L.push(`Stands out: ${rep.quirks.join(' ')}`);
-  if (rep.neighborhood) { const nb = rep.neighborhood; L.push(`This season: rank ${nb.me.rank} with ${nb.me.total}. Just ahead: ${nb.above.map(x => `${x.name} (#${x.rank}, ${x.gap ? '+' + x.gap : 'tied'})`).join(', ') || 'nobody (leader)'}. Just behind: ${nb.below.map(x => `${x.name} (#${x.rank}, ${x.gap || 'tied'})`).join(', ')}.`); }
+  const c = rep.career;
+  if (c && c.years.length > 1) { const m = c.metrics; L.push(`All seasons combined (${c.label}): ${m.n} picks, covered ${pct(m.cover)}; underdogs ${pct(m.dog.share)} of picks (covered ${pct(m.dog.cover)}); high-confidence 8-10 covered ${pct(m.top.cover ?? 0)}; 10s covered ${m.tens.cover != null ? pct(m.tens.cover) : 'n/a'}; ordering edge ${r1(m.orderEdgePerWeek)} pts/week. Finishes: ${c.finishes.map(f => `${f.season} #${f.rank} of ${f.of}`).join(', ')}.`); }
+  if (rep.quirks.length) L.push(`Stands out (all seasons): ${rep.quirks.join(' ')}`);
+  const fin = x => x.past?.filter(Boolean).map(p => `${p.season} #${p.rank}`).join(', ');
+  if (rep.neighborhood) { const nb = rep.neighborhood; L.push(`This season: rank ${nb.me.rank} with ${nb.me.total}. Just ahead: ${nb.above.map(x => `${x.name} (#${x.rank}, ${x.gap ? '+' + x.gap : 'tied'}${fin(x) ? '; past finishes ' + fin(x) : ''})`).join(', ') || 'nobody (leader)'}. Just behind: ${nb.below.map(x => `${x.name} (#${x.rank}, ${x.gap || 'tied'}${fin(x) ? '; past finishes ' + fin(x) : ''})`).join(', ')}.`); }
   if (rep.lessons.length) L.push(`What separates them: ${rep.lessons.join(' ')}`);
   L.push(rep.caveat);
   return L.join('\n');
 }
 
 // League-wide patterns from a season, kept only when the gap is statistically meaningful
-// (two-proportion z >= 2) so we don't turn noise into strategy.
+// (two-proportion z >= 2) so we don't turn noise into strategy. yr = 'all' pools every season.
 export function leagueLessons(ctx, yr = Object.keys(ctx.seasons).sort().pop()) {
-  const S = ctx.seasons[yr]; if (!S) return [];
+  const S = yr === 'all' ? ctx.career : ctx.seasons[yr]; if (!S) return [];
   const rows = S.rows, out = [];
   const seg = f => { const s = rows.filter(f); return { n: s.length, p: s.length ? s.filter(r => r.covered).length / s.length : 0 }; };
   const test = (label, a, b, la, lb) => {
@@ -194,6 +212,22 @@ export function leagueLessons(ctx, yr = Object.keys(ctx.seasons).sort().pop()) {
   return out.sort((x, y) => Math.abs(y.z) - Math.abs(x.z));
 }
 
+// Did each league-wide pattern hold from season to season? Uses only years where the pattern was
+// clearly there on its own (|z| >= 2): opposite signs = flipped; the same direction every year (|z| >= 1 each) and
+// significant combined = held; significant in one year only = one-year; otherwise noise.
+export function lessonVerdicts(ctx) {
+  const yrs = Object.keys(ctx.seasons).sort();
+  const by = Object.fromEntries(yrs.map(y => [y, Object.fromEntries(leagueLessons(ctx, y).map(l => [l.label, l]))]));
+  return leagueLessons(ctx, 'all').map(l => {
+    const zs = Object.fromEntries(yrs.map(y => [y, by[y][l.label]?.z ?? null]));
+    const vals = Object.values(zs).filter(z => z != null), sig = vals.filter(z => Math.abs(z) >= 2);
+    const verdict = sig.some(z => z > 0) && sig.some(z => z < 0) ? 'flipped'
+      : l.significant && vals.every(z => Math.sign(z) === Math.sign(l.z) && Math.abs(z) >= 1) && yrs.length > 1 ? 'held'
+      : l.significant || sig.length ? 'one-year' : 'noise';
+    return { ...l, zs, verdict };
+  });
+}
+
 // Compact past-season summary for the Commentator's brief.
 export function historySummary(ctx, family) {
   const out = [];
@@ -208,6 +242,18 @@ export function historySummary(ctx, family) {
     }
     const L = leagueLessons(ctx, yr).filter(l => l.significant);
     if (L.length) out.push(`  League-wide patterns in ${yr} (statistically meaningful): ${L.map(l => l.text).join(' ')}`);
+  }
+  if (ctx.career?.years.length > 1) {
+    out.push(`ALL SEASONS COMBINED (${ctx.career.label}):`);
+    for (const f of family) {
+      if (!f.pool) continue; const rep = scoutingReport(ctx, f.pool); const c = rep.career; if (!c) continue;
+      const fs = [...c.finishes].sort((a, b) => a.season - b.season); let trend = '';
+      if (fs.length > 1) { const a = fs[fs.length - 2], b = fs[fs.length - 1], d = a.rank - b.rank;
+        trend = d > 0 ? ` (improved ${d} places from ${a.season} to ${b.season})` : d < 0 ? ` (dropped ${-d} places from ${a.season} to ${b.season}; a bigger rank number is worse)` : ' (same finish both years)'; }
+      out.push(`  ${f.short}: finishes ${c.finishes.map(x => `${x.season} #${x.rank}`).join(', ')}${trend}; picks covered ${Math.round(c.metrics.cover * 100)}% over ${c.metrics.n}; 10s covered ${c.metrics.tens.cover != null ? Math.round(c.metrics.tens.cover * 100) + '%' : 'n/a'}`);
+    }
+    const tag = { held: '[held up every season]', flipped: '[reversed between seasons: not a strategy]', 'one-year': '[showed up in one season only]', noise: '[noise]' };
+    out.push(`  League-wide patterns, all seasons pooled, with whether each held year to year: ${lessonVerdicts(ctx).map(l => `${tag[l.verdict]} ${l.text} (z by season: ${Object.entries(l.zs).map(([y, z]) => `${y} ${z == null ? 'n/a' : z.toFixed(1)}`).join(', ')})`).join(' ')}`);
   }
   return out.join('\n');
 }

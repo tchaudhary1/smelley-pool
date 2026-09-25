@@ -18,7 +18,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, FAMILY, BOT } from '../js/config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, FAMILY, BOT, HISTORY_SEASONS } from '../js/config.js';
 import { fetchLive, gameState, gradeEntry, indexGames, fmtHalf } from '../js/live.js';
 import { buildModel } from '../js/model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from '../js/sim.js';
@@ -56,14 +56,14 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSessio
 const dataset = async key => (await sb.from('datasets').select('value').eq('key', key).maybeSingle()).data?.value ?? null;
 
 let PRONOUNS = {};
-let ARCHIVE = null, ARCHIVE_AT = 0;
+let ARCHIVES = {}, ARCHIVE_AT = 0;   // past seasons, { 2024: archive, 2025: archive }
 async function loadPool() {
   const settings = (await dataset('settings')) || {};
   const week = await dataset(`week${settings.currentWeek}`);
   const roster = (await dataset('roster')) || {};
   const league = await dataset('league');
   PRONOUNS = (await dataset('pronouns')) || {};
-  if (!ARCHIVE_AT || Date.now() - ARCHIVE_AT > 30 * 60e3) { ARCHIVE = await dataset('history2025'); ARCHIVE_AT = Date.now(); }
+  if (!ARCHIVE_AT || Date.now() - ARCHIVE_AT > 30 * 60e3) { const got = await Promise.all(HISTORY_SEASONS.map(y => dataset(`history${y}`))); ARCHIVES = Object.fromEntries(HISTORY_SEASONS.map((y, i) => [y, got[i]]).filter(([, a]) => a)); ARCHIVE_AT = Date.now(); }
   const fam = FAMILY.map(f => ({ ...f, pool: roster[f.key] ?? f.pool }));
   if (TEST_PICKS && week) week.picks = { ...week.picks, ...JSON.parse(fs.readFileSync(TEST_PICKS, 'utf8')) };
   return { settings, week, fam, league };
@@ -275,7 +275,7 @@ function namedPeople(P, question) {
   const q = ' ' + question.toLowerCase().replace(/[^a-z0-9' ]/g, ' ') + ' ';
   const out = [];
   for (const f of P.fam) if (!f.shadow && f.pool && q.includes(' ' + f.short.toLowerCase() + ' ')) out.push(f.pool);
-  const names = new Set([...(P.league?.members || []).map(m => m.name), ...(ARCHIVE?.entries || []).map(e => e.name)]);
+  const names = new Set([...(P.league?.members || []).map(m => m.name), ...Object.values(ARCHIVES).flatMap(a => a.entries.map(e => e.name))]);
   for (const n of names) {
     const low = n.toLowerCase(); const last = low.split(' ').slice(-1)[0];
     const lastUnique = [...names].filter(x => x.toLowerCase().endsWith(' ' + last)).length === 1 && last.length >= 4;
@@ -452,9 +452,12 @@ async function tick() {
     const { data: prof } = m.testAs ? { data: { first_name: m.testAs } } : await sb.from('profiles').select('first_name').eq('user_id', m.user_id).maybeSingle();
     const asker = FAMILY.find(f => f.key === prof?.first_name)?.short || 'Someone';
     const question = m.body.replace(/@commentator\b/ig, '').trim();
-    const hctx = ARCHIVE ? buildContext({ archives: { 2025: ARCHIVE }, league: P.league }) : null;
+    const hctx = Object.keys(ARCHIVES).length ? buildContext({ archives: ARCHIVES, league: P.league }) : null;
     const history = hctx ? { summary: historySummary(hctx, P.fam) } : null;
     const people = hctx ? namedPeople(P, question) : [];
+    // "How did I do...": the asker's own scouting report goes in too.
+    const self = P.fam.find(f => f.key === prof?.first_name && !f.shadow && f.pool);
+    if (hctx && self && /\b(i|me|my|mine|i'm|i've)\b/i.test(question) && !people.some(n => samePerson(n, self.pool))) people.unshift(self.pool);
     askPeople = people;
     const reports = people.map(n => reportText(scoutingReport(hctx, n))).join('\n\n');
     if (people.length) log('scouting reports for:', people.join(', '));

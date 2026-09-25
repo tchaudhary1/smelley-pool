@@ -1,8 +1,8 @@
-import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS } from './config.js';
+import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS, HISTORY_SEASONS } from './config.js';
 import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
 import { HELP } from './help.js';
-import { buildContext, scoutingReport, leagueLessons } from './profile.js';
+import { buildContext, scoutingReport, leagueLessons, lessonVerdicts } from './profile.js';
 import { samePerson } from './names.js';
 import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
 import { buildModel } from './model.js';
@@ -826,12 +826,12 @@ function viewHelp() {
 }
 
 // ------------------------------------------------------------ HISTORY + SCOUTING REPORTS
-// Past seasons load on demand (the archive is ~450 KB), then every name can open a scouting report.
+// Past seasons load on demand (~450 KB each), then every name can open a scouting report.
 async function ensureHistory() {
   if (S.ctx) return S.ctx;
   if (!S.histLoading) S.histLoading = (async () => {
-    const a2025 = await db.loadDataset('history2025').catch(() => null);
-    S.hist = a2025 ? { 2025: a2025 } : {};
+    const got = await Promise.all(HISTORY_SEASONS.map(y => db.loadDataset(`history${y}`).catch(() => null)));
+    S.hist = Object.fromEntries(HISTORY_SEASONS.map((y, i) => [y, got[i]]).filter(([, a]) => a));
     S.ctx = buildContext({ archives: S.hist, league: S.league });
     return S.ctx;
   })();
@@ -851,7 +851,10 @@ async function openProfile(name) {
   const rep = scoutingReport(ctx, name);
   const T = leagueTable(); const now = T.rows.find(r => r.name === name || samePerson(r.name, name));
   const f = famOf(name);
-  const last = rep.seasons[0]; const m = last?.metrics; const P = last ? ctx.seasons[last.season].pooled : null; const Z = last ? ctx.seasons[last.season].spread : null;
+  // Headline numbers from the latest season; tendencies from every season pooled.
+  const last = rep.seasons[0]; const m = rep.career?.metrics; const P = ctx.career.pooled, Z = ctx.career.spread; const cl = rep.career?.label || '';
+  const pY = S.profYr?.name === name ? S.profYr.yr : null; const chartYr = pY && rep.seasons.some(s => s.season === pY && s.entry) ? pY : last?.season;
+  const cs = rep.seasons.find(s => s.season === chartYr);
   const bar = (label, mine, typical, cover) => `<div class="sr-row"><div class="sr-l">${label}</div>
       <div class="sr-bar"><i style="width:${Math.min(100, mine * 100)}%"></i><b style="left:${Math.min(100, typical * 100)}%" title="League typical ${pctS(typical)}"></b></div>
       <div class="sr-v">${pctS(mine)}<small>${cover != null ? ` · covered ${pctS(cover)}` : ''}</small></div></div>`;
@@ -859,45 +862,54 @@ async function openProfile(name) {
   const nb = rep.neighborhood;
   const nbRow = x => `<tr class="${x.name === nb.me.name ? 'me-row' : ''}"><td class="num">${x.tied ? 'T-' : ''}${x.rank}</td><td class="l">${x.name === nb.me.name ? `<b>${esc(x.name)}</b>` : nameLink(x.name)}</td>
       <td class="num">${x.total}</td><td class="num muted">${x.name === nb.me.name ? '' : x.gap > 0 ? '+' + x.gap : x.gap === 0 ? 'tied' : x.gap}</td>
-      <td class="num">${x.lastSeason?.rank ?? '–'}</td><td class="num">${pctS(x.metrics?.cover)}</td><td class="num">${pctS(x.metrics?.dog.share)}</td><td class="num">${x.metrics ? (x.metrics.orderEdgePerWeek >= 0 ? '+' : '') + x.metrics.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`;
-  const weekly = last?.entry?.weeks || [];
-  const lgAvgW = last ? ctx.seasons[last.season].archive.entries[0].weeks.map((_, w) => { const v = ctx.seasons[last.season].archive.entries.map(e => e.weeks[w]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }) : [];
+      ${(x.past || []).map(p => `<td class="num">${p?.rank ?? '–'}</td>`).join('')}<td class="num">${pctS(x.metrics?.cover)}</td><td class="num">${pctS(x.metrics?.dog.share)}</td><td class="num">${x.metrics ? (x.metrics.orderEdgePerWeek >= 0 ? '+' : '') + x.metrics.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`;
+  const weekly = cs?.entry?.weeks || [];
+  const lgAvgW = cs ? ctx.seasons[cs.season].archive.entries[0].weeks.map((_, w) => { const v = ctx.seasons[cs.season].archive.entries.map(e => e.weeks[w]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }) : [];
+  const withEntry = rep.seasons.filter(s => s.entry);
+  const seasonRows = withEntry.length > 1 ? `<h4>Season by season</h4><div class="tbl-wrap"><table><thead><tr><th class="l">Season</th><th>Finish</th><th>Wk avg</th><th>Best</th><th>Top-4s</th><th>Bowls</th><th>Cover</th><th>10s</th></tr></thead><tbody>${withEntry.map(s =>
+    `<tr><td class="l">${s.season}</td><td class="num">#${s.entry.seasonRank ?? s.entry.guruRank} <span class="muted">of ${s.entries}</span></td><td class="num">${s.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s.weekly.best ?? '–'}</td><td class="num">${s.top4.length}</td><td class="num">${s.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s.metrics?.cover)}</td><td class="num">${pctS(s.metrics?.tens.cover)}</td></tr>`).join('')}</tbody></table></div>` : '';
   const thisWeek = S.week.picks?.[name] || (f && S.week.picks?.[f.pool]);
-  const lessonsLg = leagueLessons(ctx).filter(l => l.significant).slice(0, 3);
+  const lessonsLg = lessonVerdicts(ctx).filter(l => l.verdict === 'held').slice(0, 3);   // only patterns that held every season
   const html = `${modalHead(f ? `Scouting report · family` : 'Scouting report', `${f ? avatar(f) + ' ' : ''}${esc(name)}`)}<div class="mb">
     <div class="kv">
       <div><b>${now ? `${now.rankLabel}` : '–'}</b><span>This season (${now ? now.total + ' pts' : 'not ranked'})</span></div>
       ${last?.entry ? `<div><b>#${last.entry.seasonRank ?? last.entry.guruRank}</b><span>${last.season} finish (of ${last.entries})</span></div>
       <div><b>${last.weekly.mean.toFixed(1)}</b><span>${last.season} weekly avg (league ${last.weekly.leagueAvg.toFixed(1)})</span></div>` : ''}
-      ${m ? `<div><b>${pctS(m.cover)}</b><span>${last.season} picks covered (${m.n})</span></div>
+      ${m ? `<div><b>${pctS(m.cover)}</b><span>Picks covered, ${cl} (${m.n.toLocaleString()})</span></div>
       <div><b>${m.orderEdgePerWeek >= 0 ? '+' : ''}${m.orderEdgePerWeek.toFixed(1)}</b><span>Points a week from confidence ordering</span></div>` : ''}
       ${last?.bowls ? `<div><b>#${last.bowls.rank}</b><span>${last.season} bowl pool (${last.bowls.points} pts)</span></div>` : ''}
     </div>
-    ${rep.quirks.length ? `<h4>What stands out</h4><ul class="sr-list">${rep.quirks.map(q => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
-    ${m ? `<h4>How they pick <span class="muted" style="text-transform:none;letter-spacing:0">(bar = share of picks · tick = league typical)</span></h4>
+    ${seasonRows}
+    ${rep.quirks.length ? `<h4>What stands out <span class="muted" style="text-transform:none;letter-spacing:0">(${cl})</span></h4><ul class="sr-list">${rep.quirks.map(q => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
+    ${m ? `<h4>How they pick, ${cl} <span class="muted" style="text-transform:none;letter-spacing:0">(bar = share of picks · tick = league typical)</span></h4>
       ${bar('Underdogs', m.dog.share, Z.dog.mu, m.dog.cover)}${bar('Home teams', m.home.share, Z.home.mu, m.home.cover)}${bar('NFL games', m.nfl.share, Z.nfl.mu, m.nfl.cover)}
       ${bar('Big favorites (10+)', m.bigFav.share, Z.bigFav.mu, m.bigFav.cover)}${bar('Big underdogs (10+)', m.bigDog.share, Z.bigDog.mu, m.bigDog.cover)}${bar('Contrarian picks', m.contrarian.share, Z.contrarian.mu, m.contrarian.cover)}
       <h4>By confidence</h4>${tier('High (8–10)', m.top, P.top.cover)}${tier('Middle (4–7)', m.mid, P.mid.cover)}${tier('Low (1–3)', m.low, P.low.cover)}${tier('Their 10s', m.tens, P.tens.cover)}` : ''}
-    ${weekly.some(v => v != null) ? `<h4>${last.season} week by week</h4><div class="chart" style="padding:0">${lineChart({ labels: weekly.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
+    ${weekly.some(v => v != null) ? `<h4>${chartYr} week by week</h4>${withEntry.length > 1 ? `<div class="filters">${withEntry.map(s => `<button class="chip ${s.season === chartYr ? 'on' : ''}" data-pyr="${s.season}">${s.season}</button>`).join('')}</div>` : ''}<div class="chart" style="padding:0">${lineChart({ labels: weekly.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
       series: [{ label: 'League avg', color: 'var(--ink-3)', values: lgAvgW, dash: '4 4' }, { label: name, color: f?.color || 'var(--gold)', values: weekly, width: 3 }] })}</div>
-      ${last.top4.length ? `<div class="note">Weekly top-4 finishes: ${last.top4.map(t => `Week ${t.week} (#${t.place})`).join(', ')}</div>` : ''}` : ''}
-    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th><th>${nb.season ?? ''} fin.</th><th>Cover</th><th>Dogs</th><th>Order</th></tr></thead>
+      ${cs.top4.length ? `<div class="note">Weekly top-4 finishes: ${cs.top4.map(t => `Week ${t.week} (#${t.place})`).join(', ')}</div>` : ''}` : ''}
+    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th>${(nb.seasons || []).map(y => `<th>'${String(y).slice(2)}</th>`).join('')}<th>Cover</th><th>Dogs</th><th>Order</th></tr></thead>
       <tbody>${[...nb.above, nb.me, ...nb.below].map(nbRow).join('')}</tbody></table></div>
       ${rep.lessons.length ? `<h4>What separates them</h4><ul class="sr-list">${rep.lessons.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : ''}
-    ${lessonsLg.length ? `<h4>What worked league-wide in ${last?.season ?? ''}</h4><ul class="sr-list">${lessonsLg.map(l => `<li>${esc(l.text)}</li>`).join('')}</ul>` : ''}
+    ${lessonsLg.length ? `<h4>What held up league-wide, ${ctx.career.label}</h4><ul class="sr-list">${lessonsLg.map(l => `<li>${esc(l.text)}</li>`).join('')}</ul>` : ''}
     ${thisWeek ? `<h4>This week's card</h4><div class="picks" style="gap:6px">${Object.entries(thisWeek.conf).sort((a, b) => b[0] - a[0]).map(([c, no]) => { const h = GB().get(no); return h ? `<span class="pk">${c} · ${esc(sideName(h.g, h.side))} ${sideSpread(h.g, h.side)}</span>` : ''; }).join('')}</div>` : ''}
     <p class="note">${esc(rep.caveat)}</p>
   </div>`;
   const mEl = $('.modal'); if (!mEl) return;
   mEl.innerHTML = html; bindProfileLinks(mEl); mEl.querySelector('[data-x]').onclick = closeModal;
+  mEl.querySelectorAll('[data-pyr]').forEach(b => b.onclick = () => { S.profYr = { name, yr: +b.dataset.pyr }; openProfile(name); });
 }
 
 // ---- History tab
 async function viewHistory() {
   $('#main').innerHTML = `${title('History', 'Past seasons, rebuilt pick by pick from the commissioner’s files')}<div class="empty">Loading the archive…</div>`;
   const ctx = await ensureHistory();
-  const yr = Object.keys(ctx.seasons).sort().pop();
-  if (!yr) { $('#main').innerHTML = `${title('History')}<div class="panel empty">No past seasons loaded yet.</div>`; return; }
+  const yrs = Object.keys(ctx.seasons).sort();
+  if (!yrs.length) { $('#main').innerHTML = `${title('History')}<div class="panel empty">No past seasons loaded yet.</div>`; return; }
+  const yr = S.histYr === 'all' || ctx.seasons[S.histYr] ? S.histYr : yrs[yrs.length - 1];
+  const yrChips = yrs.length > 1 ? `<div class="filters">${[...yrs].reverse().map(y => `<button class="chip ${y === yr ? 'on' : ''}" data-hyr="${y}">${y}</button>`).join('')}<button class="chip ${yr === 'all' ? 'on' : ''}" data-hyr="all">All seasons</button></div>` : '';
+  const bindChips = () => $$('[data-hyr]').forEach(b => b.onclick = () => { S.histYr = b.dataset.hyr; viewHistory(); });
+  if (yr === 'all') { viewHistoryAll(ctx, yrs, yrChips); bindChips(); return; }
   const A = ctx.seasons[yr].archive; const n = A.entries.length;
   const fam = FAMILY.filter(f => !f.shadow).map(f => ({ f, e: A.entries.find(e => f.pool && (e.name === f.pool || samePerson(e.name, f.pool))), rep: f.pool ? scoutingReport(ctx, f.pool) : null })).filter(x => x.e);
   const aw = A.winners?.awards || {};
@@ -914,6 +926,7 @@ async function viewHistory() {
   const lessons = leagueLessons(ctx, yr);
   const weekOpts = A.weeks.map(w => `<option value="${w.week}">Week ${w.week}${w.picks ? '' : ' (no pick sheet)'}</option>`).join('');
   $('#main').innerHTML = `${title(`${yr} season`, `${n} entries · every pick graded against ESPN final scores · tap any name for a scouting report`)}
+    ${yrChips}
     <div class="grid two">
       <div class="panel insight"><h3>🏆 Champions</h3><div class="champs">${champ('Guru Season', 'Season')}${champ('Guru Weeks 1-19', 'Weeks 1–19')}${champ('Bowls', 'Bowl pool')}</div></div>
       <div class="panel insight"><h3>🏟️ The family vs the league</h3>
@@ -946,6 +959,37 @@ async function viewHistory() {
     bindProfileLinks(box);
   };
   $('#hWeek').onchange = e => drawWeek(+e.target.value); drawWeek(A.weeks[0].week);
+  bindProfileLinks($('#main')); bindChips();
+}
+
+// Every season side by side: family careers, champions, and whether league-wide lessons held up
+// from one year to the next (most "patterns" don't).
+function viewHistoryAll(ctx, yrs, yrChips) {
+  const C = ctx.career; const short = y => `'${String(y).slice(2)}`;
+  const fam = FAMILY.filter(f => !f.shadow && f.pool).map(f => ({ f, rep: scoutingReport(ctx, f.pool) })).filter(x => x.rep.career || x.rep.seasons.length);
+  const finOf = (rep, y) => rep.seasons.find(s => s.season === +y)?.entry;
+  const avgFin = rep => { const v = yrs.map(y => finOf(rep, y)?.seasonRank).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 999; };
+  const famRows = fam.sort((a, b) => avgFin(a.rep) - avgFin(b.rep)).map(({ f, rep }) => { const m = rep.career?.metrics;
+    return `<tr class="row" data-profile="${esc(f.pool)}"><td class="l">${avatar(f)} ${esc(f.short)}</td>${yrs.map(y => { const e = finOf(rep, y); return `<td class="num">${e ? '#' + (e.seasonRank ?? e.guruRank) : '–'}</td>`; }).join('')}
+      <td class="num">${pctS(m?.cover)}</td><td class="num">${pctS(m?.tens.cover)}</td><td class="num">${pctS(m?.dog.share)}</td><td class="num">${m ? (m.orderEdgePerWeek >= 0 ? '+' : '') + m.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`; }).join('');
+  const champs = [...yrs].reverse().map(y => { const aw = ctx.seasons[y].archive.winners?.awards || {}; const c = k => aw[k]?.[0] ? nameLink(aw[k][0]) : '–';
+    return `<div class="stat-row"><span><b>${y}</b></span><span>Season ${c('Guru Season')}${aw['Guru Weeks 1-19'] ? ` · Weeks 1–19 ${c('Guru Weeks 1-19')}` : ''} · Bowls ${c('Bowls')}</span></div>`; }).join('');
+  // year-over-year check of each league-wide lesson
+  const VERDICT = { held: '★ Held up', flipped: '↔ Flipped', 'one-year': '½ One year only', noise: '· Noise' };
+  const zf = z => z == null ? '–' : (z > 0 ? '+' : '') + z.toFixed(1);
+  const yoy = lessonVerdicts(ctx).map(l => `<tr><td class="l">${esc(l.text)}</td>${yrs.map(y => `<td class="num">${zf(l.zs[y])}</td>`).join('')}<td class="num">${zf(l.z)}</td><td class="l"><b>${VERDICT[l.verdict]}</b></td></tr>`).join('');
+  const cards = yrs.reduce((s, y) => s + ctx.seasons[y].archive.weeks.reduce((t, w) => t + (w.picks ? Object.keys(w.picks).length : 0), 0), 0);
+  $('#main').innerHTML = `${title(`All seasons, ${C.label}`, `${yrs.length} seasons · ${cards.toLocaleString()} cards · ${C.rows.length.toLocaleString()} graded picks · tap any name for a scouting report`)}
+    ${yrChips}
+    <div class="grid two">
+      <div class="panel insight"><h3>🏆 Champions</h3>${champs}</div>
+      <div class="panel insight"><h3>📈 Did the lessons hold up?</h3><p class="note" style="margin-top:0">A lesson that's real should point the same way every year. The number is a z-score: positive means the first group covered more, and beyond ±2 is more than luck. <b>Held up</b>: same direction every year. <b>Flipped</b>: clearly one way one year and the other way the next. <b>One year only</b>: real in one season, missing in the other. Several 2025 "lessons" (contrarian picks, home teams) ran the opposite way in 2024.</p></div>
+    </div>
+    ${title('The family, season by season')}
+    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Dogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>
+      <p class="note">Cover, 10s, dogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
+    ${title('League lessons, year over year', 'z-score per season and combined')}
+    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Pattern (combined)</th>${yrs.map(y => `<th>${short(y)}</th>`).join('')}<th>All</th><th class="l">Verdict</th></tr></thead><tbody>${yoy}</tbody></table></div>`;
   bindProfileLinks($('#main'));
 }
 
