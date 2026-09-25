@@ -3,8 +3,8 @@
 export const HELP = [
   { group: 'Getting started', topics: [
     { id: 'what', title: 'What is this?', keys: 'about overview pool dashboard', body: `
-      <p>This is the Smelley family's private dashboard for the A80 football pool. It shows everyone's picks with live scores graded against the pool's printed spreads, the league standings, head-to-head records, win odds and what-ifs for the week, how the family stacks up against the whole league, and a family chat with a resident commentator. It all fits the family motto, <i>Nullum praesidium securum est</i>: no lead is safe.</p>
-      <p>Only family members can sign in, and everything behind the login (picks, standings, chat) is private to the family.</p>` },
+      <p>This is the Smelley family's private dashboard for the A80 football pool. It shows everyone's picks with live scores graded against the pool's printed spreads, the league standings, head-to-head records, win odds and what-ifs for the week, how the family stacks up against the whole league, and a family chat with a resident commentator. It also has <b>two past seasons (2024 and 2025) rebuilt pick by pick</b>, and a <b>scouting report</b> on everyone in the league: tap any name. It all fits the family motto, <i>Nullum praesidium securum est</i>: no lead is safe.</p>
+      <p>Only family members can sign in, and everything behind the login (picks, standings, history, scouting reports, chat) is private to the family.</p>` },
     { id: 'signin', title: 'Signing in', keys: 'login log in sign in email password forgot link magic', body: `
       <p>Use the email address Tarun added for you. There are two ways in:</p>
       <ul><li><b>Email + password</b>, if you've set a password.</li>
@@ -18,7 +18,7 @@ export const HELP = [
       <p><b>Android (Chrome or Firefox):</b> open the site, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install</b>).</p>
       <p>It then opens like an app, with the crest as its icon.</p>` },
     { id: 'getting-around', title: 'Getting around (tabs, arrows, cards)', keys: 'navigation tabs arrows scroll swipe menu cards tap mobile phone', body: `
-      <ul><li>The tabs run across the top: <b>Game Day, Standings, Head to Head, Pick Lab, Smack Talk, Help</b> (plus <b>Upload</b> for Tarun). On a phone they don't all fit: swipe the tab bar, or tap the <b>‹ ›</b> arrows that appear at its edges when more tabs are hidden that way.</li>
+      <ul><li>The tabs run across the top: <b>Game Day, Standings, Head to Head, Pick Lab, Smack Talk, History, Help</b> (plus <b>Upload</b> for Tarun). On a phone they don't all fit: swipe the tab bar, or tap the <b>‹ ›</b> arrows that appear at its edges when more tabs are hidden that way.</li>
       <li>Almost everything opens a <b>card</b> with more detail: family cards, games, standings rows, head-to-head squares, what-ifs, charts, even the crest. On a phone, cards slide up from the bottom. Close with ×, by tapping outside, or with the Esc key.</li>
       <li>Everything refreshes on its own: about every minute while games are live, every few minutes otherwise. Pull down (phone) or reload to refresh right away.</li></ul>` },
   ]},
@@ -87,7 +87,8 @@ export const HELP = [
       <li>Type <b>@</b> to mention someone: a menu pops up with the family and the Commentator. Keep typing to narrow it down, then tap a name or press Enter or Tab. Mentions are highlighted, and yours get a gold outline.</li>
       <li><b>Game tag:</b> tap the 🏈 chip to attach a game. Tapping the tag on a message opens that game's card.</li>
       <li><b>Reactions:</b> tap <b>＋🙂</b> under any message, or on a pick in a card, to react. Tap your reaction again to remove it.</li>
-      <li>You can delete your own messages (the "delete" link next to your name).</li></ul>` },
+      <li>You can delete your own messages (the "delete" link next to your name).</li>
+      <li><b>Ask the Commentator</b>: tag <b>@Commentator</b> with a question. Blinking dots appear while it works, and the answer usually lands within half a minute. Untagged messages don't get an answer.</li></ul>` },
     { id: 'history', title: 'History (past seasons)', keys: 'history 2024 2025 last year past seasons archive champions week by week bowls lessons all seasons year over year held up flipped', body: `
       <p>The <b>History</b> tab rebuilds past seasons pick by pick from the commissioner's files, with every game graded against the final score. Two seasons are in so far, 2024 and 2025. About 98–99% of rebuilt cards match the official weekly scores exactly, and the official scores always win.)</p>
       <p>Use the season buttons at the top to switch years, or pick <b>All seasons</b>.</p>
@@ -123,6 +124,7 @@ export const HELP = [
       <ul><li><b>Scores and lines</b> come from ESPN's public scoreboard and refresh about every minute while games are live. They can lag a TV broadcast by 30 seconds or so.</li>
       <li><b>Times</b> are shown in Eastern Time.</li>
       <li><b>Picks and standings</b> are uploaded by Tarun from the commissioner's sheets. The league's official scores always win if anything disagrees.</li>
+      <li><b>Past seasons</b> are rebuilt from the commissioner's odds sheets and pick matrices, with every game graded against ESPN's final score. About 98–99% of rebuilt weekly cards match the official scores exactly; where they differ, the official score is used.</li>
       <li><b>Chances, odds and rankings</b> are estimates, for fun, not guarantees.</li></ul>` },
   ]},
   { group: 'The Commentator', topics: [
@@ -138,13 +140,14 @@ export const HELP = [
       <ul><li>"@Commentator how is the family doing against the league?"</li>
       <li>"@Commentator what if Georgia covers and Penn State doesn't?" (it re-runs the simulation with those results locked in)</li>
       <li>"@Commentator what does Jamie need to win the week?"</li>
-      <li>"@Commentator how does Wyatt Johnson pick?" or "who in the family is best with their 10s?" (it knows past seasons too)</li></ul>
+      <li>"@Commentator how does Wyatt Johnson pick?" or "who in the family is best with their 10s?" (it knows past seasons too)</li>
+      <li>"@Commentator how did I do in 2024 compared with 2025?" or "does going contrarian actually work?"</li></ul>
       <p>If the answer isn't in the data, it says so rather than guessing.</p>
       <p>It uses everyone's correct pronouns, sticks to the actual numbers, and teases the picks, not the people. It can only read the pool and post messages; it can't change picks or scores.</p>` },
     { id: 'preview', title: 'The weekend kickoff preview', keys: 'preview weekend kickoff hype summary storylines', body: `
       <p>Once every family pick sheet and nearly all of the league's are loaded, the Commentator posts one longer hype message for the weekend: Thursday's results so far, the family race, the family consensus and the big family "civil war", the boldest and most contrarian picks, each of us against the league, the family against the league, the biggest swing games from Saturday through Monday, and the tiebreaker guesses. It posts once per week.</p>` },
     { id: 'quiet', title: 'Why is the Commentator quiet?', keys: 'quiet silent muted not posting offline', body: `
-      <p>It runs on Tarun's computer, so it's silent when that computer is off or asleep. It also caps itself (a few posts an hour, a handful per game) so it won't flood the chat, and Tarun can mute it. If it ever misses the mark, tell Tarun.</p>` },
+      <p>It runs on Tarun's computer, so it's silent when that computer is off or asleep. It also caps its own game commentary (a few posts an hour, a handful per game) so it won't flood the chat; questions have a separate, bigger allowance, and Tarun can mute it. If it ever misses the mark, tell Tarun.</p>` },
   ]},
   { group: 'How the pool works', topics: [
     { id: 'rules', title: 'Scoring rules', keys: 'rules scoring confidence points ten picks tiebreaker', body: `
@@ -167,6 +170,11 @@ export const HELP = [
         <dt>Percentile</dt><dd>Share of the league you're ahead of: 90 means better than 90% of entries.</dd>
         <dt>Best-ball</dt><dd>Taking the family's single best score each week, as if the family were one entry.</dd>
         <dt>Projected</dt><dd>Simulated from someone's season so far because their picks for this week aren't loaded yet.</dd>
+        <dt>Cover rate</dt><dd>The share of someone's picks that covered. Around 50% is normal; a few points either way over one season is mostly luck.</dd>
+        <dt>Contrarian pick</dt><dd>A side that under 35% of the league took that week.</dd>
+        <dt>Ordering edge</dt><dd>Points a week gained (or lost) from where someone puts their confidence, compared with spreading the same picks' points at random.</dd>
+        <dt>Scouting report</dt><dd>The card that opens when you tap a name: how that person picks, how it has gone, what stands out, and the players ranked around them.</dd>
+        <dt>Held up / Flipped</dt><dd>History's check on league-wide patterns. Held up: the same direction every season. Flipped: clearly one way one year and the other way the next, so it's luck, not a strategy.</dd>
         <dt>Shadow card</dt><dd>Tarun's unofficial, data-driven practice card, tracked for fun and not entered in the pool.</dd>
       </dl>` },
   ]},
@@ -175,7 +183,8 @@ export const HELP = [
       <ul><li>Only signed-in family members can see picks, standings and the chat. Someone who finds the web address sees only the sign-in page.</li>
       <li>Accounts are invite-only; nobody can sign themselves up, and sign-in links only go to emails already on the list.</li>
       <li>Everyone in the family can read every chat message. You can delete your own.</li>
-      <li>When The Commentator writes a comment, the relevant scores, picks and recent chat lines are sent to Claude to write it.</li></ul>` },
+      <li>Past seasons and scouting reports (including other league members' names and picks) are behind the same login and never in the public code.</li>
+      <li>When The Commentator writes a comment, the relevant scores, picks, past-season stats and recent chat lines are sent to Claude to write it.</li></ul>` },
   ]},
   { group: 'For Tarun (admin)', admin: true, topics: [
     { id: 'upload', title: 'Uploading picks and standings', keys: 'upload admin xls picks totals workbook validate duplicate', body: `

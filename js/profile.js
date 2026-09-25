@@ -150,7 +150,8 @@ function lessons(ctx, name, nb) {
   const P = ctx.career.pooled, yr = ctx.career.label;
   const group = nb.above.filter(x => x.metrics && x.metrics.n >= 60); if (!group.length) return out;
   const avg = f => group.reduce((s, x) => s + f(x.metrics), 0) / group.length;
-  const me = nb.me.metrics, names = group.map(x => x.name.split(' ')[0]).join(', ');
+  const firsts = group.map(x => x.name.split(' ')[0]);   // first names, unless two would read the same
+  const me = nb.me.metrics, names = (new Set(firsts).size === firsts.length ? firsts : group.map(x => x.name)).join(', ');
   const cmp = [
     { k: 'underdogs', mine: me.dog.share, theirs: avg(m => m.dog.share), worked: P.dog.cover, base: 0.5, seg: 'underdogs' },
     { k: 'big favorites (10+)', mine: me.bigFav.share, theirs: avg(m => m.bigFav.share), worked: P.bigFav.cover, base: 0.5, seg: 'big favorites' },

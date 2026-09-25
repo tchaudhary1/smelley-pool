@@ -493,7 +493,7 @@ table.nb tr.me-row td { background: color-mix(in srgb, var(--gold) 14%, transpar
 .champ { display: flex; flex-direction: column; } .champ b { font-size: 16px; } .champ small { color: var(--ink-3); font-size: 12px; }
 @media (max-width: 640px) {
   .sr-row { grid-template-columns: 96px 1fr 104px; font-size: 12.5px; }
-  table.nb th:nth-child(5), table.nb td:nth-child(5), table.nb th:nth-child(8), table.nb td:nth-child(8) { display: none; }
+  table.nb .opt { display: none; }   /* older seasons and Order */
 }
 
 /* "The Commentator is typing…" */
@@ -506,3 +506,8 @@ table.nb tr.me-row td { background: color-mix(in srgb, var(--gold) 14%, transpar
 .dots i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .2; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
+
+/* History → All seasons: long pattern text wraps so the z-scores and verdict stay on screen */
+table.yoy td.l:first-child { white-space: normal; min-width: 150px; line-height: 1.35; }
+table.yoy td:last-child { white-space: nowrap; }
+@media (max-width: 640px) { table.yoy td.l:first-child { font-size: 13px; } }

@@ -101,7 +101,11 @@ async function start() {
   db.subscribe(() => refreshSocial().then(() => { botReplied(); if (S.tab === 'talk') render(); }),
     ({ on }) => { if (on) botWait('typing'); else if (S.botWait?.phase === 'typing') botWait(null); });
   const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(hash)) S.tab = hash;
+  // Deep links: ?season=2024|all opens History on that season, ?profile=<name> opens a scouting report.
+  const q = new URLSearchParams(location.search);
+  if (q.get('season')) { S.histYr = q.get('season'); if (!hash) S.tab = 'history'; }
   render(); schedule();
+  if (q.get('profile')) openProfile(q.get('profile'));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
 }
 function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
@@ -894,7 +898,7 @@ async function openProfile(name) {
   const nb = rep.neighborhood;
   const nbRow = x => `<tr class="${x.name === nb.me.name ? 'me-row' : ''}"><td class="num">${x.tied ? 'T-' : ''}${x.rank}</td><td class="l">${x.name === nb.me.name ? `<b>${esc(x.name)}</b>` : nameLink(x.name)}</td>
       <td class="num">${x.total}</td><td class="num muted">${x.name === nb.me.name ? '' : x.gap > 0 ? '+' + x.gap : x.gap === 0 ? 'tied' : x.gap}</td>
-      ${(x.past || []).map(p => `<td class="num">${p?.rank ?? '–'}</td>`).join('')}<td class="num">${pctS(x.metrics?.cover)}</td><td class="num">${pctS(x.metrics?.dog.share)}</td><td class="num">${x.metrics ? (x.metrics.orderEdgePerWeek >= 0 ? '+' : '') + x.metrics.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`;
+      ${(x.past || []).map((p, i, a) => `<td class="num ${i < a.length - 1 ? 'opt' : ''}">${p?.rank ?? '–'}</td>`).join('')}<td class="num">${pctS(x.metrics?.cover)}</td><td class="num">${pctS(x.metrics?.dog.share)}</td><td class="num opt">${x.metrics ? (x.metrics.orderEdgePerWeek >= 0 ? '+' : '') + x.metrics.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`;
   const weekly = cs?.entry?.weeks || [];
   const lgAvgW = cs ? ctx.seasons[cs.season].archive.entries[0].weeks.map((_, w) => { const v = ctx.seasons[cs.season].archive.entries.map(e => e.weeks[w]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }) : [];
   const withEntry = rep.seasons.filter(s => s.entry);
@@ -920,7 +924,7 @@ async function openProfile(name) {
     ${weekly.some(v => v != null) ? `<h4>${chartYr} week by week</h4>${withEntry.length > 1 ? `<div class="filters">${withEntry.map(s => `<button class="chip ${s.season === chartYr ? 'on' : ''}" data-pyr="${s.season}">${s.season}</button>`).join('')}</div>` : ''}<div class="chart" style="padding:0">${lineChart({ labels: weekly.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
       series: [{ label: 'League avg', color: 'var(--ink-3)', values: lgAvgW, dash: '4 4' }, { label: name, color: f?.color || 'var(--gold)', values: weekly, width: 3 }] })}</div>
       ${cs.top4.length ? `<div class="note">Weekly top-4 finishes: ${cs.top4.map(t => `Week ${t.week} (#${t.place})`).join(', ')}</div>` : ''}` : ''}
-    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th>${(nb.seasons || []).map(y => `<th>'${String(y).slice(2)}</th>`).join('')}<th>Cover</th><th>Dogs</th><th>Order</th></tr></thead>
+    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th>${(nb.seasons || []).map((y, i, a) => `<th class="${i < a.length - 1 ? 'opt' : ''}">'${String(y).slice(2)}</th>`).join('')}<th>Cover</th><th>Dogs</th><th class="opt">Order</th></tr></thead>
       <tbody>${[...nb.above, nb.me, ...nb.below].map(nbRow).join('')}</tbody></table></div>
       ${rep.lessons.length ? `<h4>What separates them</h4><ul class="sr-list">${rep.lessons.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : ''}
     ${lessonsLg.length ? `<h4>What held up league-wide, ${ctx.career.label}</h4><ul class="sr-list">${lessonsLg.map(l => `<li>${esc(l.text)}</li>`).join('')}</ul>` : ''}
@@ -1021,7 +1025,7 @@ function viewHistoryAll(ctx, yrs, yrChips) {
     <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Dogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>
       <p class="note">Cover, 10s, dogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
     ${title('League lessons, year over year', 'z-score per season and combined')}
-    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Pattern (combined)</th>${yrs.map(y => `<th>${short(y)}</th>`).join('')}<th>All</th><th class="l">Verdict</th></tr></thead><tbody>${yoy}</tbody></table></div>`;
+    <div class="panel tbl-wrap"><table class="yoy"><thead><tr><th class="l">Pattern (combined)</th>${yrs.map(y => `<th>${short(y)}</th>`).join('')}<th>All</th><th class="l">Verdict</th></tr></thead><tbody>${yoy}</tbody></table></div>`;
   bindProfileLinks($('#main'));
 }
 

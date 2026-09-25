@@ -26,6 +26,12 @@ await crop('gameday', 'leadwatch', { top: 1824, height: 512, width: 800 }, 800);
 await crop('lab', 'race', { left: 22, top: 500, width: 956, height: 892 }, 956);
 await crop('lab', 'whatifs', { left: 22, top: 1414, width: 956, height: 775 }, 956);
 await crop('talk', 'chat', { top: 1280, height: 1100 });
+// History + scouting (500px wide x2; demo history from tools/make-demo-history.mjs):
+//   histall = ?preview&demo&as=jamie&season=all#history      (500x2600)
+//   scout   = ?preview&demo&as=jamie&profile=Debbie%20S.     (500x3600)
+await crop('histall', 'history', { top: 470, height: 1460 });
+await crop('scout', 'scouting', { top: 3200, height: 950 });
+await crop('scout', 'neighborhood', { top: 5885, height: 900 });
 // Crest for the header (PNG with transparency, email-safe; webp isn't supported everywhere).
 await sharp('assets/crest-640.webp').resize(300).png({ compressionLevel: 9 }).toFile('assets/email/crest.png');
 console.log('crest', Math.round(fs.statSync('assets/email/crest.png').size / 1024) + ' KB');

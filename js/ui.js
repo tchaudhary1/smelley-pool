@@ -69,7 +69,9 @@ export function lineChart({ series, labels, height = 190, yMin, yMax, fmtY = v =
   const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1));
   let grid = '';
   for (let v = lo; v <= hi + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" /><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtY(Math.round(v))}</text>`;
-  const xl = labels.map((l, i) => `<text x="${x(i)}" y="${H - 5}" text-anchor="middle">${esc(l)}</text>`).join('');
+  // Thin the labels when they would collide (19 weeks on a phone): about one per 28px, always the last.
+  const every = Math.max(1, Math.ceil(labels.length * 28 / (W - L - R)));
+  const xl = labels.map((l, i) => (i % every && i !== labels.length - 1) ? '' : `<text x="${x(i)}" y="${H - 5}" text-anchor="middle">${esc(l)}</text>`).join('');
   const lines = series.map(s => {
     const pts = s.values.map((v, i) => v == null ? null : [x(i), y(v)]);
     let d = '', pen = false; for (const p of pts) { if (!p) { pen = false; continue; } d += `${pen ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`; pen = true; }
