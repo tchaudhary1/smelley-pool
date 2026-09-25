@@ -281,12 +281,12 @@ function viewStandings() {
   const q = S.search.toLowerCase();
   const rows = T.rows.filter(r => (!S.famOnly || r.f) && (!q || r.name.toLowerCase().includes(q)));
   const tr = r => `<tr class="row ${r.f ? 'fam' : ''}" style="--c:${r.f?.color || 'transparent'}" data-name="${esc(r.name)}">
-    <td class="num">${r.rankLabel.replace("#", "")}</td><td class="l">${r.f ? avatar(r.f) + ' ' : ''}${esc(r.name)}</td>
-    ${r.weeks.map((v, i) => `<td class="num" title="Week rank ${r.wrank?.[i] ?? '–'}">${v ?? '–'}</td>`).join('')}
+    <td class="num">${r.rankLabel.replace("#", "")}</td><td class="l nm-cell">${r.f ? avatar(r.f) + ' ' : ''}${esc(r.name)}</td>
+    ${r.weeks.map((v, i) => `<td class="num wk" title="Week rank ${r.wrank?.[i] ?? '–'}">${v ?? '–'}</td>`).join('')}
     <td class="num">${r.cur == null ? '<span class="muted">–</span>' : `${r.cur}${r.curLive ? '<span class="muted">*</span>' : ''}`}</td>
-    <td class="num"><b>${r.total}</b></td><td class="num muted">${r.rank === 1 ? '—' : '−' + (T.leader - r.total)}</td><td class="num">${pctile(r.rank, T.n)}</td></tr>`;
-  const ghost = `<tr class="ghost row" style="--c:${sh.f.color}" data-member="tarun"><td>—</td><td class="l">${avatar(sh.f)} Shadow card <span class="shadow-tag">unofficial</span></td>
-    ${sh.weeks.map(v => `<td class="num">${v ?? '–'}</td>`).join('')}<td class="num">${sh.cur ?? '–'}<span class="muted">*</span></td><td class="num">${sh.total}</td><td class="muted">since W${sh.since}</td><td></td></tr>`;
+    <td class="num"><b>${r.total}</b></td><td class="num muted">${r.rank === 1 ? '—' : '−' + (T.leader - r.total)}</td><td class="num pc">${pctile(r.rank, T.n)}</td></tr>`;
+  const ghost = `<tr class="ghost row" style="--c:${sh.f.color}" data-member="tarun"><td>—</td><td class="l nm-cell">${avatar(sh.f)} Shadow card <span class="shadow-tag">unofficial</span></td>
+    ${sh.weeks.map(v => `<td class="num wk">${v ?? '–'}</td>`).join('')}<td class="num">${sh.cur ?? '–'}<span class="muted">*</span></td><td class="num">${sh.total}</td><td class="muted">since W${sh.since}</td><td class="pc"></td></tr>`;
 
   const fams = T.rows.filter(r => r.f);
   const cols = Array.from({ length: T.weeks }, (_, w) => T.rows.map(r => r.weeks[w]));
@@ -297,7 +297,7 @@ function viewStandings() {
   $('#main').innerHTML = `${title('League standings', `${T.n} entries · through week ${T.weeks}${S.week.picks ? ` · W${cw} column is live for the picks we have*` : ''}`)}
     <div class="filters"><button class="chip ${S.famOnly ? 'on' : ''}" id="fOnly">Family only</button><button class="chip ${!S.famOnly ? 'on' : ''}" id="fAll">Whole league</button>
       <input class="search" id="srch" placeholder="Search a name…" value="${esc(S.search)}"></div>
-    <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th>${c}</th>`).join('')}<th>W${cw}</th><th>Total</th><th>Back</th><th>Pctl</th></tr></thead>
+    <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th class="wk">${c}</th>`).join('')}<th>W${cw}</th><th>Total</th><th>Back</th><th class="pc">Pctl</th></tr></thead>
       <tbody>${rows.map(tr).join('')}${S.famOnly || !q ? ghost : ''}</tbody></table></div>
     <div class="note">*Live week-${cw} points from ESPN, for entries whose picks are loaded. Official weekly scores replace them once the commissioner posts totals.</div>
     ${title('How the family stacks up')}
@@ -407,12 +407,12 @@ function consensusTable() {
     .sort((a, b) => (b.on.fav.length + b.on.dog.length) - (a.on.fav.length + a.on.dog.length) || new Date(a.g.espn.kickoff) - new Date(b.g.espn.kickoff));
   if (!games.length) return `<div class="empty">No picks loaded yet.</div>`;
   const r = S.week.research || {};
-  return `<table><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: fav covers</th><th>Status</th></tr></thead><tbody>
+  return `<table class="stack"><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: fav covers</th><th>Status</th></tr></thead><tbody>
     ${games.map(({ g, on }) => { const st = gameState(g, S.live, S.week.research); const m = r[g.fav_no];
-      return `<tr class="row" data-game="${g.fav_no}"><td class="l">${esc(g.fav)} −${fmtHalf(g.spread)} v ${esc(g.dog)}</td>
-      <td class="l">${on.fav.map(p => pickChip(p, g, 'fav')).join(' ') || '<span class="muted">–</span>'}</td>
-      <td class="l">${on.dog.map(p => pickChip(p, g, 'dog')).join(' ') || '<span class="muted">–</span>'}</td>
-      <td class="num">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td>${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
+      return `<tr class="row" data-game="${g.fav_no}"><td class="l st-head">${esc(g.fav)} −${fmtHalf(g.spread)} v ${esc(g.dog)}</td>
+      <td class="l" data-label="${esc(g.fav)}">${on.fav.map(p => pickChip(p, g, 'fav')).join(' ') || '<span class="muted">–</span>'}</td>
+      <td class="l" data-label="${esc(g.dog)}">${on.dog.map(p => pickChip(p, g, 'dog')).join(' ') || '<span class="muted">–</span>'}</td>
+      <td class="num" data-label="Model: fav covers">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td data-label="Status">${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
 }
 function shadowList() {
   const sh = S.week.shadow; const G = GB();

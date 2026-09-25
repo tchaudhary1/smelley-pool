@@ -55,9 +55,11 @@ export const modalHead = (kicker, title, extra = '') =>
   `<div class="mh">${extra}<div><div class="kicker">${esc(kicker)}</div><h2>${title}</h2></div><button class="x" data-x aria-label="Close">×</button></div>`;
 
 // ---------- charts (plain SVG) ----------
+// Narrower drawing width on phones so axis labels stay readable after the SVG scales to fit.
+const chartW = () => (window.innerWidth < 640 ? 380 : 600);
 // series: [{label, color, values:[..], width, dash}], x labels
 export function lineChart({ series, labels, height = 190, yMin, yMax, fmtY = v => v }) {
-  const W = 600, H = height, L = 34, R = 10, T = 10, B = 22;
+  const W = chartW(), H = height, L = 34, R = 10, T = 10, B = 22;
   const all = series.flatMap(s => s.values.filter(v => v != null));
   const lo = yMin ?? Math.floor(Math.min(...all) / 10) * 10, hi = yMax ?? (Math.ceil(Math.max(...all) / 10) * 10 || 10);
   const x = i => L + (labels.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (labels.length - 1));
@@ -76,7 +78,7 @@ export function lineChart({ series, labels, height = 190, yMin, yMax, fmtY = v =
 
 // Strip plot: columns of dots (one per week), highlights drawn on top.
 export function stripPlot({ columns, labels, highlights, height = 230 }) {
-  const W = 600, H = height, L = 34, R = 10, T = 10, B = 22;
+  const W = chartW(), H = height, L = 34, R = 10, T = 10, B = 22;
   const all = columns.flat().filter(v => v != null);
   const lo = 0, hi = Math.max(55, Math.ceil(Math.max(...all) / 5) * 5);
   const cw = (W - L - R) / labels.length;
@@ -101,7 +103,7 @@ export function stripPlot({ columns, labels, highlights, height = 230 }) {
 
 // Histogram of values with labelled markers.
 export function histogram({ values, markers, bin = 5, height = 170 }) {
-  const W = 600, H = height, L = 10, R = 10, T = 26, B = 22;
+  const W = chartW(), H = height, L = 10, R = 10, T = 26, B = 22;
   const lo = Math.floor(Math.min(...values) / bin) * bin, hi = Math.ceil((Math.max(...values) + 1) / bin) * bin;
   const nb = Math.max(1, (hi - lo) / bin); const counts = Array(nb).fill(0);
   for (const v of values) counts[Math.min(nb - 1, Math.floor((v - lo) / bin))]++;

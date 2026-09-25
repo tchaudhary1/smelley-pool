@@ -350,3 +350,67 @@ table.upl td { white-space: normal; vertical-align: top; font-size: 13px; }
 }
 .compose textarea { overflow-y: auto; scrollbar-width: none; }
 .compose textarea::-webkit-scrollbar { display: none; }
+
+/* ---------- phone polish (all tabs) ---------- */
+button, a, summary, select, .clickable, [data-game], [data-member], td.cell { touch-action: manipulation; -webkit-tap-highlight-color: rgba(201, 162, 74, .18); }
+@media (max-width: 640px) {
+  /* tab bar: fade the edges so it reads as scrollable */
+  nav.tabs { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%); }
+  main { padding: 12px 12px 48px; }
+  .section-title { margin: 18px 0 8px; }
+  .section-title h2 { font-size: 16px; }
+
+  /* charts: labels readable after scaling */
+  .chart { padding: 10px; }
+  .chart svg text { font-size: 12px; }
+
+  /* game rows */
+  .pip { height: 22px; font-size: 11px; }
+  .team .home { font-size: 10.5px; } .team .pn { font-size: 11.5px; }
+  .team img { width: 24px; height: 24px; }
+  .lw { min-width: 78vw; }
+
+  /* standings: rank, name, this week, total, back; tap a row for the weekly detail */
+  th.wk, td.wk, th.pc, td.pc { display: none; }
+  td.nm-cell { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+  th, td { padding: 9px 8px; }
+  .search { min-width: 0; flex: 1 1 100%; font-size: 16px; }
+
+  /* head-to-head grid: keep the names column pinned while scrolling */
+  .matrix th.l { position: sticky; left: 0; z-index: 1; background: var(--panel); }
+  .matrix td.cell { min-width: 48px; height: 44px; }
+
+  /* consensus board -> one card per game */
+  table.stack thead { display: none; }
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+  table.stack tr { border-bottom: 1px solid var(--line); padding: 8px 4px; }
+  table.stack td { border: 0; padding: 3px 6px; text-align: left; white-space: normal; display: flex; justify-content: space-between; gap: 10px; }
+  table.stack td.st-head { font-weight: 700; font-size: 14.5px; }
+  table.stack td[data-label]::before { content: attr(data-label); color: var(--ink-3); font-size: 12.5px; flex: none; max-width: 45%; }
+  .panel.tbl-wrap:has(table.stack) { overflow: visible; }
+
+  /* pop-up cards become bottom sheets */
+  .modal-bg { place-items: end center; padding: 0; }
+  .modal { width: 100%; max-height: 92dvh; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); animation: sheet .2s ease; }
+  @keyframes sheet { from { transform: translateY(40px); opacity: .7; } }
+  .modal .mh { position: sticky; top: 0; z-index: 2; border-radius: 18px 18px 0 0; padding: 12px 14px 10px; }
+  .modal .mh::before { content: ''; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: var(--line-2); }
+  .modal .mh h2 { font-size: 17px; }
+  .modal .x { width: 44px; height: 44px; margin: -8px -8px 0 auto; font-size: 26px; }
+  .modal .mb { padding: 12px 14px 18px; }
+  .kv { grid-template-columns: repeat(2, 1fr); }
+  .pickrow { flex-wrap: wrap; }
+  .pickrow .reacts { width: 100%; padding-left: 36px; }
+
+  /* bigger touch targets */
+  .react { min-height: 30px; min-width: 38px; padding: 2px 9px; font-size: 13.5px; }
+  .help-toc a { padding: 8px 12px; }
+  .chip { padding: 8px 12px; }
+  .help-item summary { padding: 14px; }
+}
+@media (max-width: 640px) {
+  td.nm-cell { max-width: 38vw; }
+  th, td { padding: 9px 6px; }
+  .gtag-pick select { padding: 6px 4px; }
+}
+@media (max-width: 640px) { .modal .mh { padding-top: 20px; } }
