@@ -74,6 +74,14 @@ async function start() {
   $('#meChip').onclick = accountMenu;
   if (S.user.admin) $('#adminTab').classList.remove('hidden');
   $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.tab));
+  // Show ‹ › on the tab bar whenever more tabs are hidden off that side.
+  const nav = $('#tabs'), wrap = $('#tabsWrap');
+  const edges = () => { const max = nav.scrollWidth - nav.clientWidth;
+    wrap.classList.toggle('can-l', nav.scrollLeft > 4); wrap.classList.toggle('can-r', nav.scrollLeft < max - 4); };
+  nav.addEventListener('scroll', edges, { passive: true }); window.addEventListener('resize', edges);
+  $('#tabL').onclick = () => nav.scrollBy({ left: -nav.clientWidth * 0.7, behavior: 'smooth' });
+  $('#tabR').onclick = () => nav.scrollBy({ left: nav.clientWidth * 0.7, behavior: 'smooth' });
+  S.tabEdges = edges; setTimeout(edges, 50);
   $('#mottoBtn').onclick = openMotto; $('#crestBtn').onclick = openMotto;
   $('#main').innerHTML = `<div class="empty">Loading the pool…</div>`;
   try {
@@ -161,6 +169,7 @@ function render() {
   document.body.classList.toggle('talk-mode', S.tab === 'talk');
   const activeTab = $('#tabs button.on');
   if (activeTab) { const nav = $('#tabs'); nav.scrollTo({ left: activeTab.offsetLeft - (nav.clientWidth - activeTab.offsetWidth) / 2, behavior: 'smooth' }); }
+  setTimeout(() => S.tabEdges?.(), 400);
   const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, admin: viewAdmin, help: viewHelp };
   (views[S.tab] || viewGameDay)();
 }
@@ -317,15 +326,26 @@ function viewStandings() {
   $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
   $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : openLeagueMember(tr.dataset.name));
   $('#chStrip').onclick = () => openWeekSpread(T);
+  $$('.cup-row').forEach(el => el.onclick = () => el.dataset.member ? openMember(el.dataset.member) : openLeagueMember(el.dataset.name));
 }
 function familyCup(T) {
   const fams = T.rows.filter(r => r.f);
   const weekWins = {}; fams.forEach(r => weekWins[r.name] = 0);
   for (let w = 0; w < T.weeks; w++) { const best = Math.max(...fams.map(r => r.weeks[w] ?? -1)); fams.filter(r => r.weeks[w] === best).forEach(r => weekWins[r.name]++); }
   const medals = ['🥇', '🥈', '🥉'];
+  // Shadow card: unofficial, and only exists from its first week, so compare it on that window.
+  const sh = shadowRow(); const from = sh.since - 1;
+  const since = r => r.weeks.slice(from).reduce((a, v) => a + (v || 0), 0);
+  const famSince = fams.map(since); const lo = Math.min(...famSince), hi = Math.max(...famSince);
+  const shRank = 1 + famSince.filter(v => v > sh.total).length;
+  const row = (medal, f, name, big, sub, attrs, cls = '') => `<div class="cup-row clickable ${cls}" ${attrs}>
+      <span class="cup-medal">${medal}</span>${avatar(f)}<span class="cup-name">${name}</span>
+      <span class="cup-pts num">${big}</span><span class="cup-sub">${sub}</span></div>`;
   return `<h3>The Family Cup</h3><div class="cap">Season order inside the family, with weekly family wins</div>
-    ${fams.map((r, i) => `<div class="stat-row clickable" data-name="${esc(r.name)}"><span>${medals[i] || '&nbsp;&nbsp;&nbsp;'} ${avatar(r.f)} ${esc(r.f.short)}</span>
-      <span class="num"><b>${r.total}</b> <span class="muted">· ${weekWins[r.name]} week${weekWins[r.name] === 1 ? '' : 's'} won · league ${r.rankLabel}</span></span></div>`).join('')}`;
+    ${fams.map((r, i) => row(medals[i] || '', r.f, esc(r.f.short), r.total,
+      `${weekWins[r.name]} week${weekWins[r.name] === 1 ? '' : 's'} won · league ${r.rankLabel}`, `data-name="${esc(r.name)}"`)).join('')}
+    ${row('', sh.f, `Tarun <span class="shadow-tag">shadow · unofficial</span>`, sh.total,
+      `since W${sh.since} only · family ${lo === hi ? lo : `${lo}–${hi}`} over the same weeks · would be #${shRank}`, 'data-member="tarun"', 'cup-ghost')}`;
 }
 
 // ------------------------------------------------------------ HEAD TO HEAD
@@ -336,9 +356,9 @@ function viewH2H() {
     return `<td class="cell" style="background:${c}" data-a="${esc(a.name)}" data-b="${esc(b.name)}">${r.w}–${r.l}${r.t ? '–' + r.t : ''}</td>`; };
   const shadowAsRow = { name: 'Shadow card', f: sh.f, weeks: sh.weeks };
   $('#main').innerHTML = `${title('Head to head', 'Weekly score head-to-head records. Read across: row vs column. Tap a cell')}
-    <div class="panel tbl-wrap"><table class="matrix"><thead><tr><th></th>${fams.map(r => `<th>${avatar(r.f)}<br>${esc(r.f.short)}</th>`).join('')}</tr></thead>
-    <tbody>${fams.map(a => `<tr><th class="l">${avatar(a.f)} ${esc(a.f.short)}</th>${fams.map(b => cell(a, b)).join('')}</tr>`).join('')}
-    <tr><th class="l">${avatar(sh.f)} Shadow <span class="shadow-tag">since W${sh.since}</span></th>${fams.map(b => cell(shadowAsRow, b)).join('')}</tr></tbody></table></div>
+    <div class="panel tbl-wrap"><table class="matrix"><thead><tr><th class="rh"></th>${fams.map(r => `<th class="ch">${avatar(r.f)}<span class="ch-name">${esc(r.f.short)}</span></th>`).join('')}</tr></thead>
+    <tbody>${fams.map(a => `<tr><th class="rh"><span class="rh-in">${avatar(a.f)}<span>${esc(a.f.short)}</span></span></th>${fams.map(b => cell(a, b)).join('')}</tr>`).join('')}
+    <tr class="shadow-row"><th class="rh"><span class="rh-in">${avatar(sh.f)}<span>Shadow<small>since W${sh.since} · unofficial</small></span></span></th>${fams.map(b => cell(shadowAsRow, b)).join('')}</tr></tbody></table></div>
     ${title(`This week's biggest swing games`, 'Games where the family is split, weighted by confidence on each side')}
     <div id="swing">${swingGames()}</div>`;
   $$('td.cell').forEach(td => td.onclick = () => openH2H(td.dataset.a, td.dataset.b));

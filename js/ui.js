@@ -61,11 +61,14 @@ const chartW = () => (window.innerWidth < 640 ? 380 : 600);
 export function lineChart({ series, labels, height = 190, yMin, yMax, fmtY = v => v }) {
   const W = chartW(), H = height, L = 34, R = 10, T = 10, B = 22;
   const all = series.flatMap(s => s.values.filter(v => v != null));
-  const lo = yMin ?? Math.floor(Math.min(...all) / 10) * 10, hi = yMax ?? (Math.ceil(Math.max(...all) / 10) * 10 || 10);
+  // Round axis ticks (10, 20, 25, 50…) with about four gridlines.
+  const rawLo = yMin ?? Math.min(...all), rawHi = yMax ?? Math.max(...all);
+  const step = [1, 2, 5, 10, 20, 25, 50, 100].find(s => (rawHi - rawLo) / s <= 5) || 100;
+  const lo = yMin ?? Math.floor(rawLo / step) * step, hi = Math.max(lo + step, yMax != null ? Math.ceil(yMax / step) * step : Math.ceil(rawHi / step) * step);
   const x = i => L + (labels.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (labels.length - 1));
   const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1));
-  const ticks = 4; let grid = '';
-  for (let k = 0; k <= ticks; k++) { const v = lo + (hi - lo) * k / ticks; grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" /><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtY(Math.round(v))}</text>`; }
+  let grid = '';
+  for (let v = lo; v <= hi + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" /><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtY(Math.round(v))}</text>`;
   const xl = labels.map((l, i) => `<text x="${x(i)}" y="${H - 5}" text-anchor="middle">${esc(l)}</text>`).join('');
   const lines = series.map(s => {
     const pts = s.values.map((v, i) => v == null ? null : [x(i), y(v)]);
