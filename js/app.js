@@ -4,7 +4,7 @@ import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from
 import { HELP } from './help.js';
 import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
 import { buildModel } from './model.js';
-import { simulateWeek, describeWhatIf } from './sim.js';
+import { simulateWeek, describeWhatIf, fieldModel } from './sim.js';
 import { $, $$, esc, pct, fmt1, fam, famByPool, avatar, etTime, etDay, ago, until, ranks, mean, median, quantile,
   openModal, closeModal, modalHead, lineChart, stripPlot, histogram } from './ui.js';
 
@@ -105,20 +105,28 @@ function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); rende
 
 // Model + simulation are recomputed whenever scores/lines refresh or new picks arrive.
 function simEntries() {
-  return entries().filter(e => e.picks).map(e => ({ key: e.f.key, label: e.f.shadow ? "Tarun's shadow card" : e.f.short, official: !e.f.shadow, conf: e.picks.conf }));
+  // Every family member (projected from their history if their picks aren't in), the shadow card,
+  // and any other league entries whose picks have been uploaded.
+  const famNames = new Set(FAMILY.map(f => f.pool).filter(Boolean));
+  const fam = entries().map(e => ({ key: e.f.key, label: e.f.shadow ? "Tarun's shadow card" : e.f.short, group: e.f.shadow ? 'shadow' : 'family', name: e.f.pool, conf: e.picks?.conf }))
+    .filter(e => e.conf || e.group === 'family');
+  const lg = Object.entries(S.week.picks || {}).filter(([n]) => !famNames.has(n)).map(([name, p]) => ({ key: 'lg:' + name, label: name, group: 'league', name, conf: p.conf }));
+  return [...fam, ...lg];
 }
 function recompute() {
   S.week.research = buildModel(S.week, S.live);
   const ents = simEntries();
-  S.sim = ents.length ? simulateWeek(S.week, S.live, S.week.research, ents) : null;
+  S.field = S.league ? fieldModel(S.league, S.week.week) : null;
+  S.sim = ents.some(e => e.conf) ? simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field) : null;
 }
 function raceLine(f) {
-  const se = S.sim?.entries.find(x => x.key === f.key); if (!se) return '';
-  if (se.pWin != null) return `<div class="meta race"><span>🏆 Win week <b>${pct(se.pWin)}</b></span></div>`;
+  const se = S.sim?.entries.find(x => x.key === f.key); if (!se || !se.picked) return '';
+  const lg = se.league ? `<div class="meta race"><span>🏟️ League: about #${se.league.weekRank} this week · top-10 ${pct(se.league.pTop10)}</span></div>` : '';
+  if (se.pWin != null) return `<div class="meta race"><span>🏆 Win week <b>${pct(se.pWin)}</b></span></div>${lg}`;
   const vsShadow = !f.shadow && S.sim.h2h?.[f.key]?.tarun;
-  return vsShadow != null && vsShadow !== undefined && !f.shadow ? `<div class="meta race"><span>⚔️ Beats shadow <b>${pct(vsShadow)}</b></span></div>` : '';
+  return (vsShadow != null && !f.shadow ? `<div class="meta race"><span>⚔️ Beats shadow <b>${pct(vsShadow)}</b></span></div>` : '') + lg;
 }
-const simLabel = key => key === 'tarun' ? "Tarun's shadow card" : (fam(key)?.short || key);
+const simLabel = key => key === 'tarun' ? "Tarun's shadow card" : key === 'family' ? 'The family' : (fam(key)?.short || key.replace(/^lg:/, ''));
 async function refreshLive() {
   S.live = await fetchLive(S.week); S.lastLive = new Date();
   recompute();
@@ -340,6 +348,7 @@ function viewStandings() {
       <div class="panel chart"><h3>Season totals</h3><div class="cap">Where the family sits in the league distribution</div>
         ${histogram({ values: T.rows.map(r => r.total), markers: fams.map(r => ({ label: r.f.short, color: r.f.color, value: r.total })) })}</div>
       <div class="panel chart">${familyCup(T)}</div>
+      ${familyVsLeagueHistory(T)}
     </div>`;
   $('#fOnly').onclick = () => { S.famOnly = true; viewStandings(); }; $('#fAll').onclick = () => { S.famOnly = false; viewStandings(); };
   $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
@@ -395,7 +404,7 @@ function swingGames() {
 function raceSection() {
   const sim = S.sim;
   if (!sim) return `<div class="panel insight"><p>The race appears once picks are loaded.</p></div>`;
-  const rows = [...sim.entries].sort((a, b) => (b.official - a.official) || (b.pWin ?? -1) - (a.pWin ?? -1) || b.mean - a.mean);
+  const rows = sim.entries.filter(e => e.picked && e.group !== 'league').sort((a, b) => (b.official - a.official) || (b.pWin ?? -1) - (a.pWin ?? -1) || b.mean - a.mean);
   const official = rows.filter(r => r.official).length;
   const bar = (p, color) => `<div class="race-bar"><i style="width:${Math.max(2, p * 100)}%;background:${color}"></i></div>`;
   const body = rows.map(r => { const f = fam(r.key);
@@ -410,6 +419,53 @@ function raceSection() {
     <div class="grid two"><div class="panel insight">${body}${note}</div>
       <div class="panel insight"><h3>🔀 What-ifs that matter most</h3>${ifs.length ? ifs.map(x => `<div class="whatif clickable" data-game="${x.favNo}">${esc(x.text)}</div>`).join('') : '<p>Nothing left that changes the race.</p>'}
       <p class="note">Recomputed every refresh. As games finish, these shift, and the Commentator may chime in with the big ones.</p></div></div>`;
+}
+// "Versus the league": each of us, and the family as a whole, against all league entries this week.
+function leagueSection() {
+  const sim = S.sim, fvl = sim?.familyVsLeague; if (!fvl) return '';
+  const n = sim.leagueSize, T = leagueTable();
+  const lgPicks = sim.entries.filter(e => e.group === 'league' && e.picked).length;
+  const rows = sim.entries.filter(e => e.league).map(e => { const f = fam(e.key); const now = T.rows.find(r => r.f === f); const L = e.league;
+    return `<div class="lg-row clickable ${e.group === 'shadow' ? 'race-ghost' : ''}" data-member="${e.key}">${avatar(f)}<div>
+      <div class="race-name">${esc(e.group === 'shadow' ? "Tarun's shadow card" : f.short)}</div>
+      <div class="race-sub">This week: about #${L.weekRank} of ${n} · top-10 week ${pct(L.pTop10)} · top quarter ${pct(L.pTopQ)}</div>
+      <div class="race-sub">${e.group === 'shadow' ? 'Unofficial: ranked as if it were an entry' : `Season: ${now?.rankLabel ?? '–'} now → about #${L.seasonRank} after this week · season top-10 ${pct(L.pSeasonTop10)}`}</div></div></div>`; }).join('');
+  const proj = fvl.projectedMembers.map(k => fam(k)?.short).filter(Boolean);
+  const ifs = (sim.leagueWhatifs || []).slice(0, 3).map(w => describeWhatIf(w, S.week, simLabel)).filter(Boolean);
+  return `${title('Versus the league', `${n} entries · ${lgPicks ? `${lgPicks} with picks loaded, the rest` : 'other entries'} simulated from their season so far`)}
+    <div class="grid two">
+      <div class="panel insight"><h3>🏟️ The family vs the league</h3>
+        <div class="kv"><div><b>${fmt1(fvl.famAvg)}</b><span>Family average this week (projected)</span></div><div><b>${fmt1(fvl.lgAvg)}</b><span>Everyone else's average</span></div>
+          <div><b>${pct(fvl.pFamAhead)}</b><span>Family beats the league average</span></div><div><b>${pct(fvl.pFamTop10)}</b><span>Someone in the family has a top-10 week</span></div></div>
+        ${proj.length ? `<p class="note">${esc(proj.join(', '))}: picks not in yet, so they're simulated from their season so far. This sharpens as sheets are uploaded.</p>` : ''}
+        ${ifs.length ? `<h4 class="lg-h">What-ifs</h4>${ifs.map(x => `<div class="whatif clickable" data-game="${x.favNo}">${esc(x.text)}</div>`).join('')}` : ''}</div>
+      <div class="panel insight"><h3>📈 Each of us vs the league</h3>${rows || '<p class="muted">Appears once picks are loaded.</p>'}</div>
+    </div>`;
+}
+// Standings: how the family has actually done against the league, week by week.
+function familyVsLeagueHistory(T) {
+  const fams = T.rows.filter(r => r.f), rest = T.rows.filter(r => !r.f);
+  if (!fams.length || !T.weeks) return '';
+  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  let beat = 0;
+  const weeks = Array.from({ length: T.weeks }, (_, w) => {
+    const fv = fams.map(r => r.weeks[w]).filter(v => v != null), lv = rest.map(r => r.weeks[w]).filter(v => v != null);
+    const fa = avg(fv), la = avg(lv); if (fa > la) beat++;
+    const best = fams.filter(r => r.weeks[w] != null).sort((a, b) => b.weeks[w] - a.weeks[w])[0];
+    return `<tr><td class="l">Week ${w + 1}</td><td class="num">${fmt1(fa)}</td><td class="num">${fmt1(la)}</td>
+      <td class="num ${fa >= la ? 'delta up' : 'delta dn'}">${fa >= la ? '+' : ''}${fmt1(fa - la)}</td>
+      <td class="l">${best ? `${avatar(best.f)} ${esc(best.f.short)} ${best.weeks[w]} <span class="muted">(#${best.wrank[w]})</span>` : '–'}</td></tr>`; }).join('');
+  const famTot = avg(fams.map(r => r.total)), lgTot = avg(rest.map(r => r.total));
+  const pctiles = fams.map(r => pctile(r.rank, T.n));
+  // "Team Smelley" best ball: the family's best score each week, as if it were one entry.
+  const bb = Array.from({ length: T.weeks }, (_, w) => Math.max(...fams.map(r => r.weeks[w] ?? 0))).reduce((a, b) => a + b, 0);
+  const bbRank = (T.rows.some(r => r.total === bb) ? 'T-' : '#') + (1 + T.rows.filter(r => r.total > bb).length);
+  return `<div class="panel chart"><h3>Family vs the league</h3><div class="cap">The family's weekly average against everyone else's, from the official scores</div>
+    <div class="kv" style="margin:6px 0 10px"><div><b>${beat} of ${T.weeks}</b><span>Weeks the family beat the league average</span></div>
+      <div><b>${fmt1(famTot)} <span class="muted" style="font-size:13px">vs ${fmt1(lgTot)}</span></b><span>Average season total</span></div>
+      <div><b>${Math.round(avg(pctiles))}</b><span>Average family percentile</span></div>
+      <div><b>${bb} <span class="muted" style="font-size:13px">${bbRank}</span></b><span>"Team Smelley" best-ball (best family score each week) would rank</span></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th class="l">Week</th><th>Family</th><th>League</th><th>Diff</th><th class="l">Family best</th></tr></thead><tbody>${weeks}</tbody></table></div></div>`;
 }
 function viewLab() {
   const E = entries().filter(e => e.picks);
@@ -432,6 +488,7 @@ function viewLab() {
       <div class="stat-row"><span>Avg model cover chance <small class="muted">(${p.modelN} picks)</small></span><span class="num">${p.model == null ? '–' : pct(p.model)}</span></div></div>`; }).join('');
   $('#main').innerHTML = `${title('Pick Lab', `Week ${S.week.week}: what everyone's betting on, and how the numbers see it`)}
     ${raceSection()}
+    ${leagueSection()}
     ${title('Storylines')}<div class="grid two">${insights(E)}</div>
     ${title('Pick styles')}<div class="grid two">${profCards || '<div class="panel empty">No picks loaded yet.</div>'}</div>
     ${title('Consensus board', 'Every game with at least one family pick')}
@@ -597,9 +654,10 @@ function emojiPop(btn, after) {
 
 // ============================================================ CARDS
 function gameWhatIf(g) {
-  const w = S.sim?.whatifs?.find(x => x.favNo === g.fav_no); if (!w) return '';
-  const d = describeWhatIf(w, S.week, simLabel); if (!d) return '';
-  return `<h4>What it means for the race</h4><div class="whatif">${esc(d.text)}</div>`;
+  const ws = [S.sim?.whatifs?.find(x => x.favNo === g.fav_no), ...(S.sim?.leagueWhatifs || []).filter(x => x.favNo === g.fav_no)].filter(Boolean);
+  const ds = ws.map(w => describeWhatIf(w, S.week, simLabel)).filter(Boolean);
+  if (!ds.length) return '';
+  return `<h4>What it means for the race</h4>${ds.map(d => `<div class="whatif">${esc(d.text)}</div>`).join('')}`;
 }
 function openGame(favNo) {
   const g = S.week.games.find(x => x.fav_no === favNo); if (!g) return;

@@ -464,3 +464,7 @@ nav.tabs { -webkit-mask-image: none; mask-image: none; scroll-behavior: smooth; 
 .race-ghost { font-style: italic; opacity: .85; }
 .whatif { padding: 9px 10px; border-left: 3px solid var(--gold); background: var(--panel-2); border-radius: 0 8px 8px 0; margin: 8px 0; font-size: 13.5px; line-height: 1.4; }
 .meta.race { margin-top: 4px; } .meta.race b { color: var(--ink); }
+.lg-row { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+.lg-row:last-child { border-bottom: 0; }
+.lg-row .race-sub { margin-top: 2px; }
+.lg-h { margin: 14px 0 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
