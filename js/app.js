@@ -1,0 +1,767 @@
+import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS } from './config.js';
+import * as db from './data.js';
+import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
+import { HELP } from './help.js';
+import { fetchLive, gameState, gradeEntry, indexGames, sideName, sideSpread, fmtHalf } from './live.js';
+import { $, $$, esc, pct, fmt1, fam, famByPool, avatar, etTime, etDay, ago, until, ranks, mean, median, quantile,
+  openModal, closeModal, modalHead, lineChart, stripPlot, histogram } from './ui.js';
+
+const S = { user: null, league: null, week: null, live: new Map(), msgs: [], reacts: [], tab: 'gameday',
+  slateFilter: 'family', famOnly: true, search: '', lastLive: null, timer: null };
+
+// ============================================================ boot
+init();
+async function init() {
+  if (db.LOCAL && !['localhost', '127.0.0.1'].includes(location.hostname)) {
+    $('#login').classList.remove('hidden'); $('#loginForm').innerHTML = `<p>The dashboard isn't connected to its database yet. Check back soon.</p>`; return;
+  }
+  if (db.LOCAL) { $('#previewBanner').classList.remove('hidden'); $('#lname').type = 'text'; $('#lname').placeholder = 'jamie'; }
+  $('#loginForm').addEventListener('submit', onLogin);
+  $('#magicBtn').onclick = () => emailAction(db.sendSignInLink, 'Check your email for a sign-in link. It opens this page already signed in.');
+  $('#forgotBtn').onclick = () => emailAction(db.sendPasswordReset, 'Check your email for a link to choose a new password.');
+  $('#pwForm').addEventListener('submit', onSetPassword);
+  $('#pwSkip').onclick = () => { $('#pwForm').classList.add('hidden'); S.user ? start() : showLogin(); };
+  let recovering = false;
+  db.onAuthEvent(ev => { if (ev === 'recovery') { recovering = true; showPasswordForm(); } });
+  try { S.user = await db.currentUser(); } catch (err) { S.user = null; $('#loginErr').textContent = err.message; }
+  if (recovering) return;
+  S.user ? start() : showLogin();
+}
+function showLogin() { $('#login').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#loginForm').classList.remove('hidden'); $('#lname').focus(); }
+function showPasswordForm() {
+  $('#login').classList.remove('hidden'); $('#app').classList.add('hidden');
+  $('#loginForm').classList.add('hidden'); $('#pwForm').classList.remove('hidden'); $('#newpw').focus();
+}
+async function onLogin(e) {
+  e.preventDefault(); $('#loginErr').textContent = ''; $('#loginOk').classList.add('hidden');
+  if (!$('#lpass').value && !db.LOCAL) { $('#loginErr').textContent = 'Enter your password, or tap "Email me a sign-in link".'; return; }
+  try { S.user = await db.signIn($('#lname').value, $('#lpass').value); $('#lpass').value = ''; start(); }
+  catch (err) { $('#loginErr').textContent = err.message; }
+}
+async function emailAction(fn, okMsg) {
+  $('#loginErr').textContent = ''; $('#loginOk').classList.add('hidden');
+  const email = $('#lname').value.trim();
+  if (!/^\S+@\S+\.\S+$/.test(email)) { $('#loginErr').textContent = 'Type your email address first.'; $('#lname').focus(); return; }
+  try { await fn(email); $('#loginOk').textContent = okMsg; $('#loginOk').classList.remove('hidden'); }
+  catch (err) { $('#loginErr').textContent = err.message; }
+}
+async function onSetPassword(e) {
+  e.preventDefault(); $('#pwErr').textContent = '';
+  const pw = $('#newpw').value;
+  if (pw.length < 8) { $('#pwErr').textContent = 'Use at least 8 characters.'; return; }
+  try { await db.setPassword(pw); $('#newpw').value = ''; $('#pwForm').classList.add('hidden');
+    S.user = S.user || await db.currentUser(); S.user ? start() : showLogin(); }
+  catch (err) { $('#pwErr').textContent = err.message; }
+}
+function accountMenu() {
+  const old = $('.menu'); if (old) { old.remove(); return; }
+  const m = document.createElement('div'); m.className = 'menu';
+  m.innerHTML = `<div class="who">${esc(S.user.email || fam(S.user.key)?.short || '')}</div>
+    ${db.LOCAL ? '' : '<button data-a="pw">Set or change password</button>'}<button data-a="out">Sign out</button>`;
+  document.body.appendChild(m);
+  m.onclick = async ev => { const a = ev.target.dataset.a; if (!a) return; m.remove();
+    if (a === 'out') { await db.signOut(); location.hash = ''; location.reload(); }
+    if (a === 'pw') showPasswordForm(); };
+  setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target) && ev.target.closest('#meChip') == null) { m.remove(); document.removeEventListener('click', off); } }), 0);
+}
+async function start() {
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  if (S.started) return;   // e.g. returning from "change password"
+  S.started = true;
+  const me = fam(S.user.key);
+  $('#meChip').innerHTML = `${avatar(me)} ${esc(me?.short)} <span class="so" style="opacity:.6">▾</span>`;
+  $('#meChip').title = 'Account';
+  $('#meChip').onclick = accountMenu;
+  if (S.user.admin) $('#adminTab').classList.remove('hidden');
+  $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.tab));
+  $('#mottoBtn').onclick = openMotto; $('#crestBtn').onclick = openMotto;
+  $('#main').innerHTML = `<div class="empty">Loading the pool…</div>`;
+  try {
+    const roster = await db.loadRoster().catch(() => ({}));
+    for (const f of FAMILY) if (roster[f.key]) f.pool = roster[f.key];
+    const settings = await db.loadDataset('settings').catch(() => null);
+    S.settings = settings || { currentWeek: CURRENT_WEEK };
+    const wk = settings?.currentWeek ?? CURRENT_WEEK;
+    [S.league, S.week] = await Promise.all([db.loadDataset('league'), db.loadDataset(`week${wk}`)]);
+  } catch (err) { $('#main').innerHTML = `<div class="empty">Couldn't load pool data: ${esc(err.message)}</div>`; return; }
+  if (!S.week) { $('#main').innerHTML = `<div class="empty">No data for this week yet.</div>`; return; }
+  await Promise.all([refreshLive(), refreshSocial()]);
+  db.subscribe(() => refreshSocial().then(() => { if (S.tab === 'talk') render(); }));
+  const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'admin', 'help'].includes(hash)) S.tab = hash;
+  render(); schedule();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
+}
+function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
+
+async function refreshLive() {
+  S.live = await fetchLive(S.week); S.lastLive = new Date();
+  const n = [...S.live.values()].filter(s => s.state === 'in').length;
+  $('#liveDot').classList.toggle('on', n > 0);
+  $('#liveTxt').textContent = n ? `${n} live` : `updated ${S.lastLive.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+async function refreshSocial() {
+  [S.msgs, S.reacts] = await Promise.all([db.listMessages(), db.listReactions()]).catch(() => [[], []]);
+}
+function schedule() {
+  clearTimeout(S.timer);
+  const anyLive = [...S.live.values()].some(s => s.state === 'in');
+  const soon = S.week.games.some(g => g.espn && Math.abs(new Date(g.espn.kickoff) - Date.now()) < 20 * 60e3);
+  S.timer = setTimeout(async () => { await refreshLive(); if ($('.modal')) refreshOpenModal(); else if (S.tab !== 'talk' && S.tab !== 'admin') render(); schedule(); }, anyLive || soon ? 45e3 : 5 * 60e3);
+}
+let modalRefresher = null;
+function refreshOpenModal() { modalRefresher?.(); }
+
+// ============================================================ model
+const GB = () => indexGames(S.week);
+function entries() {
+  // Family entries with picks this week, plus the shadow card.
+  return FAMILY.map(f => {
+    const picks = f.shadow ? S.week.shadow : (f.pool ? S.week.picks?.[f.pool] : null);
+    return { f, picks, grade: picks ? gradeEntry(picks, S.week, S.live) : null };
+  });
+}
+function allEntriesForGame(g) {
+  const out = { fav: [], dog: [] };
+  for (const e of entries()) if (e.picks) for (const [c, no] of Object.entries(e.picks.conf)) {
+    if (no === g.fav_no) out.fav.push({ e, conf: +c }); if (no === g.dog_no) out.dog.push({ e, conf: +c });
+  }
+  for (const k of ['fav', 'dog']) out[k].sort((a, b) => b.conf - a.conf);
+  return out;
+}
+function leagueTable() {
+  const L = S.league; if (!L) return { rows: [], weeks: 0 };
+  const weeks = Math.max(0, ...L.members.map(m => m.weeks.reduce((w, v, i) => v != null ? i + 1 : w, 0)));
+  const curW = S.week.week;
+  const rows = L.members.map(m => {
+    const f = famByPool(m.name);
+    const official = m.weeks.slice(0, weeks);
+    const cur = m.weeks[curW - 1];
+    const picks = S.week.picks?.[m.name];
+    const liveCur = cur == null && picks ? gradeEntry(picks, S.week, S.live).banked : null;
+    const total = official.reduce((a, v) => a + (v || 0), 0);
+    return { name: m.name, f, weeks: official, cur: cur ?? liveCur, curLive: cur == null && liveCur != null, total, withCur: total + (cur == null ? (liveCur || 0) : 0) };
+  });
+  const rk = ranks(rows.map(r => r.total)); rows.forEach((r, i) => r.rank = rk[i]);
+  const wr = []; for (let w = 0; w < weeks; w++) { const rr = ranks(rows.map(r => r.weeks[w])); rows.forEach((r, i) => (r.wrank ??= [])[w] = rr[i]); wr.push(rr); }
+  rows.forEach(r => r.rankLabel = (rows.filter(o => o.total === r.total).length > 1 ? 'T-' : '#') + r.rank);
+  rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  return { rows, weeks, n: rows.length, leader: rows[0]?.total ?? 0 };
+}
+function shadowRow() {
+  const f = FAMILY.find(x => x.shadow); const sc = S.league?.shadowScores || {};
+  const g = S.week.shadow ? gradeEntry(S.week.shadow, S.week, S.live) : null;
+  const weeks = []; for (let w = 1; w <= (leagueTable().weeks || 0); w++) weeks.push(sc[w] ?? null);
+  return { f, weeks, cur: g ? g.banked : null, total: weeks.reduce((a, v) => a + (v || 0), 0), since: Object.keys(sc).length ? Math.min(...Object.keys(sc).map(Number)) : S.week.week };
+}
+const pctile = (rank, n) => Math.round(100 * (n - rank) / Math.max(1, n - 1));
+
+// ============================================================ render
+function render() {
+  $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
+  const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, admin: viewAdmin, help: viewHelp };
+  (views[S.tab] || viewGameDay)();
+}
+function title(t, sub = '') { return `<div class="section-title"><h2>${t}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}</div>`; }
+
+// ------------------------------------------------------------ GAME DAY
+function viewGameDay() {
+  const T = leagueTable();
+  const cards = entries().map(({ f, picks, grade }) => {
+    const row = T.rows.find(r => r.f === f);
+    const pips = grade ? grade.rows.map(r => `<span class="pip ${r.status}" title="${r.conf}: ${esc(r.g ? sideName(r.g, r.side) : '#' + r.no)}">${r.conf}</span>`).join('') : '';
+    const season = f.shadow ? `<span class="shadow-tag">shadow · unofficial</span>` : row ? `Season ${row.rankLabel} of ${T.n} · ${row.total} pts` : '';
+    return `<div class="panel fcard clickable" tabindex="0" style="--c:${f.color}" data-member="${f.key}">
+      <div class="who">${avatar(f)}<div>${esc(f.short)}<br><small>${f.shadow ? 'Watson–Tarun' : esc(f.pool)}</small></div></div>
+      ${grade ? `<div class="big">${grade.banked}<span> pts banked</span></div>
+        <div class="meta"><span>Live +${grade.liveNow}</span><span>Max ${grade.maxPossible}</span><span>Exp ${fmt1(grade.expected)}</span></div>
+        <div class="pips">${pips}</div>` : `<div class="none">Picks not in yet</div>`}
+      <div class="rankline">${season}</div></div>`;
+  }).join('');
+  $('#main').innerHTML = `${title(`Week ${S.week.week} family scoreboard`, 'Tap anyone for their card')}
+    <div class="grid fam">${cards}</div>
+    ${title('Lead Watch', `${esc(MOTTO_EN)}. Live games where a family pick is on the line`)}
+    <div class="leadwatch" id="lw">${leadWatch()}</div>
+    ${title('The slate', `${S.week.games.length} games, graded against the pool's printed spreads`)}
+    <div class="filters" id="slateFilters">${[['family', 'Family picks'], ['all', 'All games'], ['live', 'Live'], ['nfl', 'NFL'], ['cfb', 'College'], ['final', 'Final']]
+      .map(([k, l]) => `<button class="chip ${S.slateFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+    <div id="slate">${slate()}</div>`;
+  $$('[data-member]').forEach(el => { el.onclick = () => openMember(el.dataset.member); el.onkeydown = e => e.key === 'Enter' && el.click(); });
+  $$('#slateFilters button').forEach(b => b.onclick = () => { S.slateFilter = b.dataset.f; viewGameDay(); });
+  bindGames();
+}
+function bindGames() { $$('[data-game]').forEach(el => { el.onclick = () => openGame(+el.dataset.game); el.onkeydown = e => e.key === 'Enter' && el.click(); }); }
+
+function leadWatch() {
+  const items = [];
+  for (const g of S.week.games) {
+    const on = allEntriesForGame(g); if (!on.fav.length && !on.dog.length) continue;
+    const st = gameState(g, S.live, S.week.research);
+    if (st.state === 'in') items.push({ g, st, on, sort: 0 });
+    else if (st.state === 'post') { const cush = Math.abs(st.margin - g.spread); if (cush <= 3.5 && Date.now() - new Date(g.espn.kickoff) < 30 * 3600e3) items.push({ g, st, on, sort: 1, close: true }); }
+  }
+  if (!items.length) {
+    const next = S.week.games.filter(g => { const on = allEntriesForGame(g); return (on.fav.length || on.dog.length) && gameState(g, S.live).state === 'pre'; })
+      .sort((a, b) => new Date(a.espn.kickoff) - new Date(b.espn.kickoff)).slice(0, 6);
+    if (!next.length) return `<div class="panel empty" style="flex:1">No family games live right now.</div>`;
+    return next.map(g => { const on = allEntriesForGame(g);
+      return `<div class="panel lw clickable" data-game="${g.fav_no}"><div class="hd"><span>${g.league} · kicks in ${until(g.espn.kickoff)}</span><span>${etTime(g.espn.kickoff)}</span></div>
+      <div class="sc"><span style="font-size:14px">${esc(g.fav)} −${fmtHalf(g.spread)}</span></div><div class="sc"><span style="font-size:14px">${esc(g.dog)} +${fmtHalf(g.spread)}</span></div>
+      <div class="picks">${[...on.fav, ...on.dog].map(p => pickChip(p, g)).join('')}</div></div>`; }).join('');
+  }
+  items.sort((a, b) => a.sort - b.sort);
+  return items.map(({ g, st, on, close }) => {
+    const favCover = st.margin > g.spread; const cushion = Math.abs(st.margin - g.spread);
+    const leader = favCover ? g.fav : g.dog;
+    const head = st.state === 'post' ? `Final: ${esc(leader)} covered by ${fmtHalf(cushion)}${close ? ' (photo finish)' : ''}` : `${esc(leader)} covering by ${fmtHalf(cushion)}`;
+    const picks = [...on.fav.map(p => ({ ...p, s: 'fav' })), ...on.dog.map(p => ({ ...p, s: 'dog' }))];
+    const lines = picks.map(p => {
+      const c = p.s === 'fav' ? st.margin - g.spread : g.spread - st.margin;
+      let txt, cls;
+      if (st.state === 'post') { txt = c > 0 ? `banked ${p.conf}` : `lost ${p.conf}`; cls = c > 0 ? 'safe' : 'gone'; }
+      else if (c > 0) { txt = c < 8 ? `up ${fmtHalf(c)}. Not safe` : c < 14 ? `up ${fmtHalf(c)}. Breathing room` : `up ${fmtHalf(c)}. Looks safe (famous last words)`; cls = c < 8 ? 'danger' : 'safe'; }
+      else { txt = `needs ${fmtHalf(-c)} to cover`; cls = 'gone'; }
+      return `<div class="verdict ${cls}">${avatar(p.e.f)} ${esc(p.e.f.short)} (${p.conf}): ${txt}</div>`;
+    }).join('');
+    return `<div class="panel lw clickable" data-game="${g.fav_no}">
+      <div class="hd"><span>${g.league} · ${esc(st.detail)}</span><span>cover ${pct(st.pFav)} / ${pct(1 - st.pFav)}</span></div>
+      <div class="sc"><span style="font-size:14px">${esc(g.fav)} −${fmtHalf(g.spread)}</span><span>${st.favScore}</span></div>
+      <div class="sc"><span style="font-size:14px">${esc(g.dog)} +${fmtHalf(g.spread)}</span><span>${st.dogScore}</span></div>
+      <div class="muted" style="font-size:12px;margin-bottom:4px">${head}</div>${lines}</div>`;
+  }).join('');
+}
+function pickChip({ e, conf }, g, side) {
+  const r = e.grade?.rows.find(x => x.conf === conf);
+  const cls = r?.status === 'won' ? 'won' : r?.status === 'lost' ? 'lost' : '';
+  return `<span class="pk ${cls} ${e.f.shadow ? 'shadowpk' : ''}" title="${esc(e.f.short)}: ${conf} on ${esc(sideName(g, r?.side ?? side ?? 'fav'))}">${avatar(e.f)}${conf}</span>`;
+}
+
+function slate() {
+  const f = S.slateFilter;
+  const games = S.week.games.filter(g => {
+    const on = allEntriesForGame(g); const st = gameState(g, S.live);
+    if (f === 'family') return on.fav.length || on.dog.length;
+    if (f === 'live') return st.state === 'in'; if (f === 'final') return st.state === 'post';
+    if (f === 'nfl') return g.league === 'NFL'; if (f === 'cfb') return g.league === 'CFB'; return true;
+  }).sort((a, b) => new Date(a.espn?.kickoff) - new Date(b.espn?.kickoff) || a.fav_no - b.fav_no);
+  if (!games.length) return `<div class="panel empty">${f === 'family' ? 'No family picks loaded for this week yet.' : 'Nothing here right now.'}</div>`;
+  let out = '', day = '';
+  for (const g of games) {
+    const d = g.espn ? etDay(g.espn.kickoff) : g.day;
+    if (d !== day) { out += `<div class="day-hd">${esc(d.toUpperCase())}</div>`; day = d; }
+    out += gameRow(g);
+  }
+  return out;
+}
+function gameRow(g) {
+  const st = gameState(g, S.live, S.week.research); const on = allEntriesForGame(g);
+  const favCov = st.state !== 'pre' && st.margin > g.spread, dogCov = st.state !== 'pre' && !favCov;
+  const team = (side, cov) => {
+    const nm = side === 'fav' ? g.fav : g.dog, logo = side === 'fav' ? g.espn?.favLogo : g.espn?.dogLogo, no = side === 'fav' ? g.fav_no : g.dog_no;
+    return `<div class="team ${cov ? 'cover' : ''}">${logo ? `<img src="${logo}" alt="" loading="lazy">` : ''}<span class="nm">${esc(nm)}</span>
+      <span class="sp">${sideSpread(g, side)}</span>${g.home === side ? '<span class="home">HOME</span>' : ''}<span class="pn">#${no}</span></div>`;
+  };
+  const mid = st.state === 'pre'
+    ? `<div class="score" style="font-size:14px">${etTime(g.espn?.kickoff)}</div><div class="st">${esc(g.league)}${S.live.get(g.espn?.id)?.broadcast ? ' · ' + esc(S.live.get(g.espn.id).broadcast) : ''}</div>`
+    : `<div class="score">${st.favScore}–${st.dogScore}</div><div class="st ${st.state === 'in' ? 'in' : ''}">${esc(st.detail)}</div>
+       <div class="coverbar" title="${esc(g.fav)} cover chance ${pct(st.pFav)}"><i style="left:0;width:${st.pFav * 100}%"></i></div>`;
+  const hookNote = st.state === 'post' && Math.abs(st.margin - g.spread) === 0.5 ? `<div class="hook">DECIDED BY THE HOOK</div>` : '';
+  return `<div class="panel game clickable" tabindex="0" data-game="${g.fav_no}">
+    <div class="side">${team('fav', favCov)}<div class="picks">${on.fav.map(p => pickChip(p, g, 'fav')).join('')}</div></div>
+    <div class="mid">${mid}${hookNote}</div>
+    <div class="side r">${team('dog', dogCov)}<div class="picks">${on.dog.map(p => pickChip(p, g, 'dog')).join('')}</div></div></div>`;
+}
+
+// ------------------------------------------------------------ STANDINGS
+function viewStandings() {
+  const T = leagueTable(); const sh = shadowRow(); const cw = S.week.week;
+  const wkCols = Array.from({ length: T.weeks }, (_, i) => `W${i + 1}`);
+  const q = S.search.toLowerCase();
+  const rows = T.rows.filter(r => (!S.famOnly || r.f) && (!q || r.name.toLowerCase().includes(q)));
+  const tr = r => `<tr class="row ${r.f ? 'fam' : ''}" style="--c:${r.f?.color || 'transparent'}" data-name="${esc(r.name)}">
+    <td class="num">${r.rankLabel.replace("#", "")}</td><td class="l">${r.f ? avatar(r.f) + ' ' : ''}${esc(r.name)}</td>
+    ${r.weeks.map((v, i) => `<td class="num" title="Week rank ${r.wrank?.[i] ?? '–'}">${v ?? '–'}</td>`).join('')}
+    <td class="num">${r.cur == null ? '<span class="muted">–</span>' : `${r.cur}${r.curLive ? '<span class="muted">*</span>' : ''}`}</td>
+    <td class="num"><b>${r.total}</b></td><td class="num muted">${r.rank === 1 ? '—' : '−' + (T.leader - r.total)}</td><td class="num">${pctile(r.rank, T.n)}</td></tr>`;
+  const ghost = `<tr class="ghost row" style="--c:${sh.f.color}" data-member="tarun"><td>—</td><td class="l">${avatar(sh.f)} Shadow card <span class="shadow-tag">unofficial</span></td>
+    ${sh.weeks.map(v => `<td class="num">${v ?? '–'}</td>`).join('')}<td class="num">${sh.cur ?? '–'}<span class="muted">*</span></td><td class="num">${sh.total}</td><td class="muted">since W${sh.since}</td><td></td></tr>`;
+
+  const fams = T.rows.filter(r => r.f);
+  const cols = Array.from({ length: T.weeks }, (_, w) => T.rows.map(r => r.weeks[w]));
+  const cumul = r => { let s = 0; return r.weeks.map(v => (s += v || 0)); };
+  const medCum = Array.from({ length: T.weeks }, (_, w) => median(T.rows.map(r => cumul(r)[w])));
+  const top10 = Array.from({ length: T.weeks }, (_, w) => { const s = T.rows.map(r => cumul(r)[w]).sort((a, b) => b - a); return s[9]; });
+
+  $('#main').innerHTML = `${title('League standings', `${T.n} entries · through week ${T.weeks}${S.week.picks ? ` · W${cw} column is live for the picks we have*` : ''}`)}
+    <div class="filters"><button class="chip ${S.famOnly ? 'on' : ''}" id="fOnly">Family only</button><button class="chip ${!S.famOnly ? 'on' : ''}" id="fAll">Whole league</button>
+      <input class="search" id="srch" placeholder="Search a name…" value="${esc(S.search)}"></div>
+    <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th>${c}</th>`).join('')}<th>W${cw}</th><th>Total</th><th>Back</th><th>Pctl</th></tr></thead>
+      <tbody>${rows.map(tr).join('')}${S.famOnly || !q ? ghost : ''}</tbody></table></div>
+    <div class="note">*Live week-${cw} points from ESPN, for entries whose picks are loaded. Official weekly scores replace them once the commissioner posts totals.</div>
+    ${title('How the family stacks up')}
+    <div class="grid two">
+      <div class="panel chart clickable" id="chStrip"><h3>Every weekly score in the league</h3><div class="cap">Grey dots are the ${T.n} entries; dashed line is the weekly average. Tap for details.</div>
+        ${stripPlot({ columns: cols, labels: wkCols, highlights: fams.map(r => ({ label: r.f.short, color: r.f.color, values: r.weeks })).concat([{ label: 'Shadow', color: sh.f.color, values: sh.weeks }]) })}
+        <div class="legend">${fams.map(r => `<span><i style="background:${r.f.color}"></i>${esc(r.f.short)}</span>`).join('')}<span><i style="background:${sh.f.color}"></i>Shadow</span></div></div>
+      <div class="panel chart"><h3>The race</h3><div class="cap">Cumulative points vs the league median and the 10th-place line</div>
+        ${lineChart({ labels: wkCols, series: [{ label: 'League median', color: 'var(--ink-3)', values: medCum, dash: '4 4' }, { label: '10th place', color: 'var(--gold)', values: top10, dash: '2 3' },
+          ...fams.map(r => ({ label: r.f.short, color: r.f.color, values: cumul(r), width: 2.5 }))] })}
+        <div class="legend"><span><i style="background:var(--ink-3)"></i>Median</span><span><i style="background:var(--gold)"></i>10th place</span>${fams.map(r => `<span><i style="background:${r.f.color}"></i>${esc(r.f.short)}</span>`).join('')}</div></div>
+      <div class="panel chart"><h3>Season totals</h3><div class="cap">Where the family sits in the league distribution</div>
+        ${histogram({ values: T.rows.map(r => r.total), markers: fams.map(r => ({ label: r.f.short, color: r.f.color, value: r.total })) })}</div>
+      <div class="panel chart">${familyCup(T)}</div>
+    </div>`;
+  $('#fOnly').onclick = () => { S.famOnly = true; viewStandings(); }; $('#fAll').onclick = () => { S.famOnly = false; viewStandings(); };
+  $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
+  $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : openLeagueMember(tr.dataset.name));
+  $('#chStrip').onclick = () => openWeekSpread(T);
+}
+function familyCup(T) {
+  const fams = T.rows.filter(r => r.f);
+  const weekWins = {}; fams.forEach(r => weekWins[r.name] = 0);
+  for (let w = 0; w < T.weeks; w++) { const best = Math.max(...fams.map(r => r.weeks[w] ?? -1)); fams.filter(r => r.weeks[w] === best).forEach(r => weekWins[r.name]++); }
+  const medals = ['🥇', '🥈', '🥉'];
+  return `<h3>The Family Cup</h3><div class="cap">Season order inside the family, with weekly family wins</div>
+    ${fams.map((r, i) => `<div class="stat-row clickable" data-name="${esc(r.name)}"><span>${medals[i] || '&nbsp;&nbsp;&nbsp;'} ${avatar(r.f)} ${esc(r.f.short)}</span>
+      <span class="num"><b>${r.total}</b> <span class="muted">· ${weekWins[r.name]} week${weekWins[r.name] === 1 ? '' : 's'} won · league ${r.rankLabel}</span></span></div>`).join('')}`;
+}
+
+// ------------------------------------------------------------ HEAD TO HEAD
+function viewH2H() {
+  const T = leagueTable(); const fams = T.rows.filter(r => r.f); const sh = shadowRow();
+  const rec = (a, b) => { let w = 0, l = 0, t = 0; a.weeks.forEach((v, i) => { const u = b.weeks[i]; if (v == null || u == null) return; v > u ? w++ : v < u ? l++ : t++; }); return { w, l, t }; };
+  const cell = (a, b) => { if (a === b) return `<td class="muted">—</td>`; const r = rec(a, b); const c = r.w > r.l ? 'var(--win-bg)' : r.w < r.l ? 'var(--lose-bg)' : 'transparent';
+    return `<td class="cell" style="background:${c}" data-a="${esc(a.name)}" data-b="${esc(b.name)}">${r.w}–${r.l}${r.t ? '–' + r.t : ''}</td>`; };
+  const shadowAsRow = { name: 'Shadow card', f: sh.f, weeks: sh.weeks };
+  $('#main').innerHTML = `${title('Head to head', 'Weekly score head-to-head records. Read across: row vs column. Tap a cell')}
+    <div class="panel tbl-wrap"><table class="matrix"><thead><tr><th></th>${fams.map(r => `<th>${avatar(r.f)}<br>${esc(r.f.short)}</th>`).join('')}</tr></thead>
+    <tbody>${fams.map(a => `<tr><th class="l">${avatar(a.f)} ${esc(a.f.short)}</th>${fams.map(b => cell(a, b)).join('')}</tr>`).join('')}
+    <tr><th class="l">${avatar(sh.f)} Shadow <span class="shadow-tag">since W${sh.since}</span></th>${fams.map(b => cell(shadowAsRow, b)).join('')}</tr></tbody></table></div>
+    ${title(`This week's biggest swing games`, 'Games where the family is split, weighted by confidence on each side')}
+    <div id="swing">${swingGames()}</div>`;
+  $$('td.cell').forEach(td => td.onclick = () => openH2H(td.dataset.a, td.dataset.b));
+  bindGames();
+}
+function swingGames() {
+  const list = S.week.games.map(g => { const on = allEntriesForGame(g); const a = on.fav.reduce((s, p) => s + p.conf, 0), b = on.dog.reduce((s, p) => s + p.conf, 0);
+    return { g, on, swing: Math.min(a, b) ? a + b : 0, a, b }; }).filter(x => x.swing).sort((x, y) => y.swing - x.swing);
+  if (!list.length) return `<div class="panel empty">No family splits yet. When more picks are loaded, the games where you're on opposite sides show up here.</div>`;
+  return list.map(x => gameRow(x.g)).join('');
+}
+
+// ------------------------------------------------------------ PICK LAB
+function viewLab() {
+  const E = entries().filter(e => e.picks);
+  const profile = e => {
+    const rows = e.grade.rows.filter(r => r.g);
+    const dogs = rows.filter(r => r.side === 'dog'), home = rows.filter(r => r.g.home === r.side), nfl = rows.filter(r => r.g.league === 'NFL');
+    const confOn = a => a.reduce((s, r) => s + r.conf, 0);
+    const res = rows.map(r => S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no]).filter(Boolean);
+    return { n: rows.length, dogs: dogs.length, dogConf: confOn(dogs), home: home.length, nfl: nfl.length, avgSpread: mean(rows.map(r => r.g.spread)),
+      bigDogs: rows.filter(r => r.side === 'dog' && r.g.spread >= 10).length, model: res.length ? mean(res.map(r => r.p)) : null, modelN: res.length };
+  };
+  const bar = (a, b, ca, cb) => `<div class="bar2"><i style="width:${a / (a + b || 1) * 100}%;background:${ca}"></i><i style="width:${b / (a + b || 1) * 100}%;background:${cb}"></i></div>`;
+  const profCards = E.map(e => { const p = profile(e);
+    return `<div class="panel insight clickable" data-member="${e.f.key}"><h3>${avatar(e.f)} ${esc(e.f.short)}'s pick style${e.f.shadow ? ' <span class="shadow-tag">shadow</span>' : ''}</h3>
+      <div class="stat-row"><span>Favorites / underdogs</span><span class="num">${p.n - p.dogs} / ${p.dogs}</span></div>${bar(p.n - p.dogs, p.dogs, 'var(--navy)', 'var(--rust)')}
+      <div class="stat-row"><span>Home / road</span><span class="num">${p.home} / ${p.n - p.home}</span></div>${bar(p.home, p.n - p.home, 'var(--slate)', 'var(--gold)')}
+      <div class="stat-row"><span>NFL / college</span><span class="num">${p.nfl} / ${p.n - p.nfl}</span></div>${bar(p.nfl, p.n - p.nfl, 'var(--win)', 'var(--live)')}
+      <div class="stat-row"><span>Average spread taken</span><span class="num">${fmt1(p.avgSpread)}</span></div>
+      <div class="stat-row"><span>Confidence on underdogs</span><span class="num">${p.dogConf} of 55</span></div>
+      <div class="stat-row"><span>Model agreement <small class="muted">(${p.modelN} Sat. college picks)</small></span><span class="num">${p.model == null ? '–' : pct(p.model)}</span></div></div>`; }).join('');
+  $('#main').innerHTML = `${title('Pick Lab', `Week ${S.week.week}: what everyone's betting on, and how the numbers see it`)}
+    <div class="grid two">${insights(E)}</div>
+    ${title('Pick styles')}<div class="grid two">${profCards || '<div class="panel empty">No picks loaded yet.</div>'}</div>
+    ${title('Consensus board', 'Every game with at least one family pick')}
+    <div class="panel tbl-wrap">${consensusTable()}</div>
+    ${S.week.shadow ? `${title('The shadow card', 'Watson–Tarun, built from multi-book lines and power ratings. Unofficial')}<div class="panel" style="padding:8px 14px">${shadowList()}</div>` : ''}`;
+  $$('[data-member]').forEach(el => el.onclick = () => openMember(el.dataset.member));
+  $$('[data-game]').forEach(el => el.onclick = () => openGame(+el.dataset.game));
+}
+function insights(E) {
+  const all = E.filter(e => !e.f.shadow).flatMap(e => e.grade.rows.filter(r => r.g).map(r => ({ ...r, e })));
+  const out = [];
+  const card = (icon, h, p, game) => `<div class="panel insight ${game ? 'clickable' : ''}" ${game ? `data-game="${game}"` : ''}><h3>${icon} ${h}</h3><p>${p}</p></div>`;
+  if (!all.length) return card('🏈', 'Waiting on picks', 'Once everyone\'s sheets are loaded, this fills with the week\'s storylines.');
+  const top = [...all].sort((a, b) => b.conf - a.conf || b.g.spread - a.g.spread)[0];
+  const biggestDog = all.filter(r => r.side === 'dog').sort((a, b) => b.conf * b.g.spread - a.conf * a.g.spread)[0];
+  const counts = {}; for (const r of all) { const k = `${r.g.fav_no}|${r.side}`; (counts[k] ??= []).push(r); }
+  const popular = Object.values(counts).sort((a, b) => b.length - a.length || b.reduce((s, r) => s + r.conf, 0) - a.reduce((s, r) => s + r.conf, 0))[0];
+  const lonely = all.filter(r => counts[`${r.g.fav_no}|${r.side}`].length === 1 && E.filter(e => !e.f.shadow).length > 1).sort((a, b) => b.conf - a.conf)[0];
+  const withModel = all.map(r => ({ ...r, m: S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no] })).filter(r => r.m);
+  const modelFav = [...withModel].sort((a, b) => b.m.p - a.m.p)[0], modelHate = [...withModel].sort((a, b) => a.m.p - b.m.p)[0];
+  const early = all.filter(r => new Date(r.g.espn.kickoff) < new Date(S.week.games.find(g => g.day === 'Saturday')?.espn?.kickoff || 0)).sort((a, b) => b.conf - a.conf)[0];
+  out.push(card('🎯', 'Boldest confidence', `${esc(top.e.f.short)} put <b>${top.conf}</b> on ${esc(sideName(top.g, top.side))} ${sideSpread(top.g, top.side)}${top.st.state !== 'pre' ? `: currently <b>${top.status}</b>` : ''}.`, top.g.fav_no));
+  if (biggestDog) out.push(card('🐕', 'Biggest dog bite', `${esc(biggestDog.e.f.short)} is taking ${esc(sideName(biggestDog.g, 'dog'))} +${fmtHalf(biggestDog.g.spread)} for ${biggestDog.conf} points.`, biggestDog.g.fav_no));
+  if (popular && popular.length > 1) out.push(card('🤝', 'Family consensus', `${popular.map(r => esc(r.e.f.short)).join(', ')} all have ${esc(sideName(popular[0].g, popular[0].side))} ${sideSpread(popular[0].g, popular[0].side)}.`, popular[0].g.fav_no));
+  if (lonely) out.push(card('🏝️', 'Loneliest pick', `Only ${esc(lonely.e.f.short)} is on ${esc(sideName(lonely.g, lonely.side))} (${lonely.conf} pts).`, lonely.g.fav_no));
+  if (early) out.push(card('⏱️', 'Early sweat', `${esc(early.e.f.short)}'s ${early.conf} on ${esc(sideName(early.g, early.side))} goes before Saturday. ${early.st.state === 'post' ? (early.status === 'won' ? 'Already banked.' : 'Already gone. No lead is safe.') : early.st.state === 'in' ? `Live: ${esc(early.st.detail)}.` : ''}`, early.g.fav_no));
+  if (modelFav) out.push(card('📈', 'The model\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover, per the shadow-card model.`, modelFav.g.fav_no));
+  if (modelHate && modelHate !== modelFav) out.push(card('📉', 'The model disagrees', `${esc(modelHate.e.f.short)}'s ${esc(sideName(modelHate.g, modelHate.side))} ${sideSpread(modelHate.g, modelHate.side)}: only <b>${pct(modelHate.m.p)}</b> by the model. Prove it wrong.`, modelHate.g.fav_no));
+  return out.join('');
+}
+function consensusTable() {
+  const games = S.week.games.map(g => ({ g, on: allEntriesForGame(g) })).filter(x => x.on.fav.length || x.on.dog.length)
+    .sort((a, b) => (b.on.fav.length + b.on.dog.length) - (a.on.fav.length + a.on.dog.length) || new Date(a.g.espn.kickoff) - new Date(b.g.espn.kickoff));
+  if (!games.length) return `<div class="empty">No picks loaded yet.</div>`;
+  const r = S.week.research || {};
+  return `<table><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: fav covers</th><th>Status</th></tr></thead><tbody>
+    ${games.map(({ g, on }) => { const st = gameState(g, S.live, S.week.research); const m = r[g.fav_no];
+      return `<tr class="row" data-game="${g.fav_no}"><td class="l">${esc(g.fav)} −${fmtHalf(g.spread)} v ${esc(g.dog)}</td>
+      <td class="l">${on.fav.map(p => pickChip(p, g, 'fav')).join(' ') || '<span class="muted">–</span>'}</td>
+      <td class="l">${on.dog.map(p => pickChip(p, g, 'dog')).join(' ') || '<span class="muted">–</span>'}</td>
+      <td class="num">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td>${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
+}
+function shadowList() {
+  const sh = S.week.shadow; const G = GB();
+  return Object.entries(sh.conf).sort((a, b) => b[0] - a[0]).map(([c, no]) => { const { g, side } = G.get(no); const n = sh.notes?.[no] || {};
+    const row = gradeEntry(sh, S.week, S.live).rows.find(r => r.conf === +c);
+    return `<div class="pickrow clickable" data-game="${g.fav_no}"><span class="cf ${row?.status}">${c}</span><div class="grow"><b>${esc(sideName(g, side))} ${sideSpread(g, side)}</b> <span class="muted">v ${esc(sideName(g, side === 'fav' ? 'dog' : 'fav'))}</span>
+      <small>${esc(n.rationale || '')}</small></div><div class="rt">${n.p_low ? `${pct(n.p_low)}–${pct(n.p_high)}` : ''}<br><span class="muted">${esc(n.risk || '')} risk</span></div></div>`; }).join('');
+}
+
+// ------------------------------------------------------------ SMACK TALK
+function viewTalk() {
+  const opts = S.week.games.filter(g => { const o = allEntriesForGame(g); return o.fav.length || o.dog.length; })
+    .map(g => `<option value="${g.fav_no}">${esc(g.fav)} v ${esc(g.dog)}</option>`).join('');
+  $('#main').innerHTML = `${title('Smack Talk', 'Family only. Keep it spicy, keep it loving')}
+    <div class="panel chat"><div class="feed" id="feed">${feed()}</div>
+      <form class="compose" id="compose"><textarea id="body" maxlength="1000" placeholder="Say something… (Enter to send)">${esc(S.draft || '')}</textarea>
+        <select id="gtag"><option value="">No game tag</option>${opts}</select><button class="btn gold" type="submit">Send</button></form></div>`;
+  const f = $('#feed'); f.scrollTop = f.scrollHeight;
+  const hadFocus = S.draftFocus; $('#body').oninput = e => S.draft = e.target.value;
+  $('#body').onfocus = () => S.draftFocus = true; $('#body').onblur = () => S.draftFocus = false;
+  if (hadFocus) { const b = $('#body'); b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
+  if (S.gtag) $('#gtag').value = S.gtag; $('#gtag').onchange = e => S.gtag = e.target.value;
+  $('#compose').onsubmit = async e => { e.preventDefault(); const body = $('#body').value.trim(); if (!body) return;
+    try { await db.postMessage(S.user, { body, week: S.week.week, game: $('#gtag').value ? +$('#gtag').value : null }); $('#body').value = ''; S.draft = ''; await refreshSocial(); viewTalk(); }
+    catch (err) { alert(err.message); } };
+  const menu = mentionMenu($('#body'));
+  $('#body').onkeydown = e => { if (menu.handleKey(e)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#compose').requestSubmit(); } };
+  bindReactions($('#main'));
+  $$('.gtag').forEach(el => el.onclick = () => openGame(+el.dataset.game));
+  $$('[data-del]').forEach(b => b.onclick = async () => { if (confirm('Delete this message?')) { await db.deleteMessage(+b.dataset.del); await refreshSocial(); viewTalk(); } });
+}
+function feed() {
+  if (!S.msgs.length) return `<div class="empty">No trash talk yet. Somebody has to start it.</div>`;
+  const G = new Map(S.week.games.map(g => [g.fav_no, g]));
+  return S.msgs.map(m => { const f = fam(m.who); const mine = m.who === S.user.key; const g = m.game && G.get(m.game);
+    return `<div class="msg ${mine ? 'me' : ''}">${avatar(f)}<div class="bubble"><div class="by">${esc(f?.short || m.who)} · ${ago(m.at)}${m.week ? ` · W${m.week}` : ''}${mine ? ` · <a href="javascript:void 0" data-del="${m.id}">delete</a>` : ''}</div>
+      ${g ? `<div class="gtag" data-game="${g.fav_no}">🏈 ${esc(g.fav)} v ${esc(g.dog)}</div>` : ''}<div class="body">${withMentions(m.body)}</div>${reactBar(`msg:${m.id}`)}</div></div>`; }).join('');
+}
+// ---------- @mentions ----------
+const handle = f => f.bot ? 'Commentator' : f.short;
+const mentionables = () => [BOT, ...FAMILY];
+function withMentions(body) {
+  const names = new Map(mentionables().map(f => [handle(f).toLowerCase(), f]));
+  return esc(body).replace(/(^|\s)@(\w+)/g, (all, pre, name) => { const f = names.get(name.toLowerCase());
+    return f ? `${pre}<span class="mention ${f.key === S.user.key ? 'me' : ''}" style="--c:${f.color}">@${esc(handle(f))}</span>` : all; });
+}
+function mentionMenu(ta) {
+  const box = document.createElement('div'); box.className = 'mention-pop hidden'; box.setAttribute('role', 'listbox');
+  ta.parentElement.appendChild(box);
+  let items = [], idx = 0, start = -1, open = false;
+  const close = () => { open = false; box.classList.add('hidden'); };
+  const draw = () => { box.innerHTML = items.map((f, i) => `<button type="button" role="option" aria-selected="${i === idx}" class="${i === idx ? 'on' : ''}" data-i="${i}">${avatar(f)}<span>${esc(handle(f))}</span>${f.bot ? '<small>bot</small>' : ''}</button>`).join('');
+    box.classList.remove('hidden'); open = true; };
+  const query = () => {
+    const pos = ta.selectionStart, m = ta.value.slice(0, pos).match(/(^|\s)@(\w*)$/);
+    if (!m) return close();
+    start = pos - m[2].length - 1; const q = m[2].toLowerCase();
+    items = mentionables().filter(f => f.key !== S.user.key && (handle(f).toLowerCase().startsWith(q) || f.key.startsWith(q)));
+    if (!items.length) return close();
+    idx = Math.min(idx, items.length - 1); draw();
+  };
+  const pick = i => { const f = items[i]; if (!f) return; const pos = ta.selectionStart; const ins = '@' + handle(f) + ' ';
+    ta.value = ta.value.slice(0, start) + ins + ta.value.slice(pos); const c = start + ins.length; ta.setSelectionRange(c, c);
+    S.draft = ta.value; close(); ta.focus(); };
+  ta.addEventListener('input', () => { idx = 0; query(); });
+  ta.addEventListener('click', query);
+  ta.addEventListener('blur', () => setTimeout(close, 150));
+  box.addEventListener('mousedown', e => { e.preventDefault(); const b = e.target.closest('button'); if (b) pick(+b.dataset.i); });
+  return { handleKey(e) {
+    if (!open) return false;
+    if (e.key === 'ArrowDown') { idx = (idx + 1) % items.length; draw(); }
+    else if (e.key === 'ArrowUp') { idx = (idx - 1 + items.length) % items.length; draw(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') pick(idx);
+    else if (e.key === 'Escape') close();
+    else return false;
+    e.preventDefault(); return true;
+  } };
+}
+function reactBar(target) {
+  const here = S.reacts.filter(r => r.target === target); const by = {};
+  for (const r of here) (by[r.emoji] ??= []).push(r.who);
+  const chips = Object.entries(by).map(([e, who]) => `<button class="react ${who.includes(S.user.key) ? 'mine' : ''}" data-t="${esc(target)}" data-e="${e}" title="${who.map(k => fam(k)?.short || k).join(', ')}">${e} ${who.length}</button>`).join('');
+  return `<div class="reacts">${chips}<button class="react add" data-t="${esc(target)}" data-add="1" title="React">＋🙂</button></div>`;
+}
+function bindReactions(root, after) {
+  $$('.react', root).forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();
+    if (b.dataset.add) return emojiPop(b, after);
+    const mine = S.reacts.some(r => r.target === b.dataset.t && r.emoji === b.dataset.e && r.who === S.user.key);
+    await db.toggleReaction(S.user, b.dataset.t, b.dataset.e, mine); await refreshSocial(); after ? after() : render();
+  });
+}
+function emojiPop(btn, after) {
+  $$('.emoji-pop').forEach(p => p.remove());
+  const r = btn.getBoundingClientRect(); const pop = document.createElement('div'); pop.className = 'emoji-pop';
+  pop.style.left = `${Math.min(window.innerWidth - 300, r.left + window.scrollX)}px`; pop.style.top = `${r.bottom + window.scrollY + 4}px`;
+  pop.innerHTML = REACTIONS.map(e => `<button>${e}</button>`).join(''); document.body.appendChild(pop);
+  pop.onclick = async ev => { const e = ev.target.closest('button')?.textContent; pop.remove(); if (!e) return;
+    const mine = S.reacts.some(x => x.target === btn.dataset.t && x.emoji === e && x.who === S.user.key);
+    await db.toggleReaction(S.user, btn.dataset.t, e, mine); await refreshSocial(); after ? after() : render(); };
+  setTimeout(() => document.addEventListener('click', function off(ev) { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('click', off); } }), 0);
+}
+
+// ============================================================ CARDS
+function openGame(favNo) {
+  const g = S.week.games.find(x => x.fav_no === favNo); if (!g) return;
+  const draw = () => {
+    const st = gameState(g, S.live, S.week.research); const on = allEntriesForGame(g); const live = S.live.get(g.espn?.id);
+    const res = S.week.research || {}; const rf = res[g.fav_no], rd = res[g.dog_no];
+    const stake = [...on.fav, ...on.dog].reduce((s, p) => s + p.conf, 0);
+    const cushion = st.margin == null ? null : st.margin - g.spread;
+    const pos = cushion == null ? 50 : Math.max(3, Math.min(97, 50 + cushion / 21 * 47));
+    const rows = side => (side === 'fav' ? on.fav : on.dog).map(p => { const r = p.e.grade.rows.find(x => x.conf === p.conf);
+      return `<div class="pickrow"><span class="cf ${r?.status}">${p.conf}</span><div class="grow">${avatar(p.e.f)} <b>${esc(p.e.f.short)}</b>${p.e.f.shadow ? ' <span class="shadow-tag">shadow</span>' : ''}</div>
+        <div class="rt">${r?.status || ''}</div>${reactBar(`pick:${S.week.week}:${p.e.f.key}:${p.conf}`)}</div>`; }).join('') || '<div class="muted" style="font-size:13px">Nobody in the family.</div>';
+    const lead = cushion > 0 ? esc(g.fav) : esc(g.dog);
+    const safe = st.state === 'in' && cushion != null ? (Math.abs(cushion) < 8 ? `<b>${lead}'s cover is not safe.</b> ${Math.abs(cushion) <= 3.5 ? 'One score flips it.' : 'One possession from trouble.'}` : Math.abs(cushion) < 14 ? `${lead} is comfortable-ish. No lead is truly safe.` : `${lead}'s cover looks safe… (famous last words)`) : '';
+    const espnUrl = g.espn ? `https://www.espn.com/${g.espn.sport === 'nfl' ? 'nfl' : 'college-football'}/game/_/gameId/${g.espn.id}` : null;
+    return `${modalHead(`Week ${S.week.week} · ${g.league} · ${st.state === 'pre' ? etTime(g.espn?.kickoff) : st.detail}`, `${esc(g.fav)} −${fmtHalf(g.spread)} <span class="muted">v</span> ${esc(g.dog)}`)}
+      <div class="mb">
+        ${st.state === 'pre' ? '' : `<div class="kv"><div><b>${st.favScore}–${st.dogScore}</b><span>${esc(g.fav)}–${esc(g.dog)}</span></div>
+          <div><b>${cushion > 0 ? esc(g.fav) : esc(g.dog)}</b><span>covering by ${fmtHalf(Math.abs(cushion))}</span></div>
+          <div><b>${pct(st.pFav)}</b><span>${esc(g.fav)} cover chance${st.state === 'in' ? ' (live)' : ''}</span></div></div>
+          <div class="gauge"><div class="zero"></div><div class="needle" style="left:${pos}%"></div></div>
+          <div class="gauge-l"><span>◀ ${esc(g.dog)} covering</span><span>on the number</span><span>${esc(g.fav)} covering ▶</span></div>
+          ${safe ? `<p style="margin:8px 0 0">${safe}</p>` : ''}${live?.situation?.last ? `<p class="note">Last play: ${esc(live.situation.last)}</p>` : ''}`}
+        <h4>The numbers</h4>
+        <div class="kv"><div><b>${esc(g.fav)} −${fmtHalf(g.spread)}</b><span>Pool line (fixed)</span></div>
+          <div><b>${esc(live?.odds || '–')}</b><span>ESPN / DraftKings now</span></div>
+          ${rf ? `<div><b>${esc(rf.market)}</b><span>6-book median (Thu night)</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model cover: fav / dog</span></div>` : ''}
+          <div><b>${stake}</b><span>Family points riding</span></div>
+          <div><b>${g.home === 'fav' ? esc(g.fav) : g.home === 'dog' ? esc(g.dog) : '–'}</b><span>Home team${g.espn?.neutral ? ' (neutral site)' : ''}</span></div></div>
+        <h4>${esc(g.fav)} −${fmtHalf(g.spread)} backers</h4>${rows('fav')}
+        <h4>${esc(g.dog)} +${fmtHalf(g.spread)} backers</h4>${rows('dog')}
+        <h4>Game reactions</h4>${reactBar(`game:${S.week.week}:${g.fav_no}`)}
+        ${espnUrl ? `<p class="note"><a href="${espnUrl}" target="_blank" rel="noopener">Open ESPN gamecast ↗</a> · ${esc(g.espn.venue || '')}</p>` : ''}
+      </div>`;
+  };
+  const mount = m => { bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
+  openModal(draw(), { onMount: mount });
+  modalRefresher = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };
+}
+
+function openMember(key) {
+  const f = fam(key); const e = entries().find(x => x.f.key === key); const T = leagueTable();
+  const row = T.rows.find(r => r.f === f); const sh = f.shadow ? shadowRow() : null;
+  const weeks = f.shadow ? sh.weeks : row?.weeks || [];
+  const leagueAvg = Array.from({ length: T.weeks }, (_, w) => Math.round(mean(T.rows.map(r => r.weeks[w]).filter(v => v != null))));
+  const played = weeks.filter(v => v != null);
+  const draw = () => {
+    const grade = e.picks ? gradeEntry(e.picks, S.week, S.live) : null;
+    const picks = grade ? grade.rows.map(r => r.g ? `<div class="pickrow clickable" data-game="${r.g.fav_no}"><span class="cf ${r.status}">${r.conf}</span>
+      <div class="grow"><b>${esc(sideName(r.g, r.side))} ${sideSpread(r.g, r.side)}</b> <span class="muted">v ${esc(sideName(r.g, r.side === 'fav' ? 'dog' : 'fav'))}</span>
+      <small>${r.g.league} · ${r.st.state === 'pre' ? etTime(r.g.espn.kickoff) : `${r.st.favScore}–${r.st.dogScore} ${esc(r.st.detail)}`}${r.cushion != null && r.st.state !== 'pre' ? ` · ${r.cushion > 0 ? 'covering' : 'short'} by ${fmtHalf(Math.abs(r.cushion))}` : ''}</small></div>
+      <div class="rt">${r.st.state === 'post' ? (r.status === 'won' ? `+${r.conf}` : '0') : pct(r.pSide)}<br><span class="muted">${r.st.state === 'post' ? r.status : 'to cover'}</span></div>
+      ${reactBar(`pick:${S.week.week}:${key}:${r.conf}`)}</div>` : `<div class="pickrow"><span class="cf">${r.conf}</span><div class="grow">Pool #${r.no} isn't on this week's sheet</div></div>`).join('') : `<div class="muted">No picks loaded for week ${S.week.week} yet.</div>`;
+    return `${modalHead(f.shadow ? 'Shadow card · unofficial' : `League ${row?.rankLabel ?? '–'} of ${T.n}`, `${esc(f.short)}${f.pool ? ` <span class="muted" style="font-size:14px">${esc(f.pool)}</span>` : ''}`, avatar(f, 'lg'))}
+      <div class="mb">
+        ${f.shadow ? `<p class="note" style="margin-top:0">${esc(f.note)}</p>` : ''}
+        <div class="kv">${grade ? `<div><b>${grade.banked}</b><span>Week ${S.week.week} banked</span></div><div><b>${grade.maxPossible}</b><span>Max possible</span></div><div><b>${fmt1(grade.expected)}</b><span>Expected</span></div>` : ''}
+          <div><b>${f.shadow ? sh.total : row?.total ?? '–'}</b><span>${f.shadow ? `Since week ${sh.since}` : 'Season total'}</span></div>
+          <div><b>${played.length ? fmt1(mean(played)) : '–'}</b><span>Avg per week (league ${fmt1(mean(leagueAvg))})</span></div>
+          <div><b>${played.length ? Math.max(...played) : '–'}</b><span>Best week</span></div>
+          ${row ? `<div><b>${pctile(row.rank, T.n)}</b><span>League percentile</span></div>` : ''}</div>
+        ${T.weeks ? `<h4>Weekly scores vs league average</h4><div class="chart" style="padding:0">${lineChart({ labels: Array.from({ length: T.weeks }, (_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
+          series: [{ label: 'League avg', color: 'var(--ink-3)', values: leagueAvg, dash: '4 4' }, { label: f.short, color: f.color, values: weeks, width: 3 }] })}</div>
+          ${row?.wrank ? `<div class="note">Weekly league ranks: ${row.wrank.map((r, i) => `W${i + 1} #${r}`).join(' · ')}</div>` : ''}` : ''}
+        <h4>Week ${S.week.week} card</h4>${picks}
+      </div>`;
+  };
+  const mount = m => { $$('[data-game]', m).forEach(el => el.onclick = ev => { if (ev.target.closest('.react')) return; openGame(+el.dataset.game); }); bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
+  openModal(draw(), { onMount: mount });
+  modalRefresher = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };
+}
+
+function openLeagueMember(name) {
+  const f = famByPool(name); if (f) return openMember(f.key);
+  const T = leagueTable(); const r = T.rows.find(x => x.name === name); if (!r) return;
+  const fams = T.rows.filter(x => x.f);
+  openModal(`${modalHead(`League ${r.rankLabel} of ${T.n}`, esc(name))}<div class="mb">
+    <div class="kv"><div><b>${r.total}</b><span>Season total</span></div><div><b>${fmt1(mean(r.weeks.filter(v => v != null)))}</b><span>Avg per week</span></div><div><b>${pctile(r.rank, T.n)}</b><span>Percentile</span></div></div>
+    <h4>Weekly</h4><div class="chart" style="padding:0">${lineChart({ labels: r.weeks.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 140, series: [{ label: name, color: 'var(--slate)', values: r.weeks, width: 3 }] })}</div>
+    <h4>Versus the family</h4>${fams.map(x => `<div class="stat-row"><span>${avatar(x.f)} ${esc(x.f.short)}</span><span class="num">${x.total > r.total ? `${esc(x.f.short)} leads by ${x.total - r.total}` : x.total < r.total ? `trails by ${r.total - x.total}` : 'tied'}</span></div>`).join('')}
+  </div>`);
+  modalRefresher = null;
+}
+
+function openH2H(aName, bName) {
+  const T = leagueTable(); const sh = shadowRow();
+  const get = n => n === 'Shadow card' ? { name: n, f: sh.f, weeks: sh.weeks, total: sh.total } : T.rows.find(r => r.name === n);
+  const a = get(aName), b = get(bName); if (!a || !b) return;
+  const ea = entries().find(e => e.f === a.f), eb = entries().find(e => e.f === b.f);
+  const G = GB();
+  const setOf = e => new Map(Object.entries(e?.picks?.conf || {}).map(([c, no]) => [no, +c]));
+  const A = setOf(ea), B = setOf(eb);
+  const shared = [...A.keys()].filter(no => B.has(no));
+  const oppose = [...A.keys()].filter(no => { const h = G.get(no); if (!h) return false; const other = h.side === 'fav' ? h.g.dog_no : h.g.fav_no; return B.has(other); });
+  const ga = ea?.picks ? gradeEntry(ea.picks, S.week, S.live) : null, gb = eb?.picks ? gradeEntry(eb.picks, S.week, S.live) : null;
+  const weekRows = a.weeks.map((v, i) => { const u = b.weeks[i]; if (v == null && u == null) return ''; const w = v != null && u != null ? (v > u ? a.f.short : v < u ? b.f.short : 'Tie') : '–';
+    return `<div class="stat-row"><span>Week ${i + 1}</span><span class="num">${v ?? '–'} – ${u ?? '–'} <span class="muted">· ${esc(w)}</span></span></div>`; }).join('');
+  openModal(`${modalHead('Head to head', `${avatar(a.f)} ${esc(a.f.short)} <span class="muted">vs</span> ${avatar(b.f)} ${esc(b.f.short)}`)}<div class="mb">
+    <div class="kv"><div><b>${a.total} – ${b.total}</b><span>${a.f.shadow || b.f.shadow ? 'Totals (shadow era only for shadow)' : 'Season totals'}</span></div>
+      ${ga && gb ? `<div><b>${ga.banked} – ${gb.banked}</b><span>Week ${S.week.week} so far</span></div><div><b>${fmt1(ga.expected)} – ${fmt1(gb.expected)}</b><span>Week ${S.week.week} expected</span></div>` : ''}</div>
+    <h4>Week by week</h4>${weekRows}
+    ${ga && gb ? `<h4>This week: ${shared.length} shared picks, ${oppose.length} head-on clashes</h4>
+      ${oppose.map(no => { const { g, side } = G.get(no); const other = side === 'fav' ? g.dog_no : g.fav_no; return `<div class="pickrow clickable" data-game="${g.fav_no}"><div class="grow"><b>${esc(a.f.short)}</b>: ${esc(sideName(g, side))} ${sideSpread(g, side)} (${A.get(no)}) <span class="muted">vs</span> <b>${esc(b.f.short)}</b>: ${esc(sideName(g, side === 'fav' ? 'dog' : 'fav'))} (${B.get(other)})</div></div>`; }).join('') || '<div class="muted">No direct clashes.</div>'}
+      ${shared.length ? `<div class="note">Shared: ${shared.map(no => { const { g, side } = G.get(no); return `${esc(sideName(g, side))} (${A.get(no)} vs ${B.get(no)})`; }).join(', ')}</div>` : ''}` : `<div class="note">Picks for both needed to compare this week.</div>`}
+  </div>`, { onMount: m => $$('[data-game]', m).forEach(el => el.onclick = () => openGame(+el.dataset.game)) });
+  modalRefresher = null;
+}
+
+function openWeekSpread(T) {
+  const fams = T.rows.filter(r => r.f);
+  const rowsHtml = Array.from({ length: T.weeks }, (_, w) => { const col = T.rows.map(r => r.weeks[w]).filter(v => v != null);
+    return `<div class="stat-row"><span>Week ${w + 1}</span><span class="num">avg ${fmt1(mean(col))} · median ${median(col)} · top 25% ≥ ${Math.round(quantile(col, .75))} · high ${Math.max(...col)}</span></div>`; }).join('');
+  openModal(`${modalHead('League pulse', 'How hard was each week?')}<div class="mb">${rowsHtml}
+    <h4>Family weekly ranks</h4>${fams.map(r => `<div class="stat-row"><span>${avatar(r.f)} ${esc(r.f.short)}</span><span class="num">${r.wrank.map((x, i) => `W${i + 1} #${x}`).join(' · ')}</span></div>`).join('')}
+    <p class="note">A 6–4 week can still score in the 20s if the misses carry the big confidence numbers.</p></div>`);
+  modalRefresher = null;
+}
+
+function openMotto() {
+  openModal(`${modalHead('Family motto', 'Nullum praesidium securum est')}<div class="mb motto-card">
+    <img src="assets/crest-640.webp" alt="Smelley family crest">
+    <div class="la">${MOTTO}</div><p><b>"${MOTTO_EN}."</b></p>
+    <p style="text-align:left">It's the oldest truth in baseball and football, and it's this family's creed. A 10 run lead at the top of the 9th? Not safe. A 17-point lead in the fourth quarter? Not safe. Covering by 10 with two minutes left? Not safe. Lead Watch on the Game Day tab tracks exactly that: every family pick that's ahead but still within reach.</p>
+    <p class="note" style="text-align:left">The crest: the peach and crossed bats for Georgia, the bison (because Lets go Buffalo!), the state itself, and the golden locomotive because Tarun likes trains (also Lula?). Tap around the dashboard; almost everything opens a card with more info.</p></div>`);
+  modalRefresher = null;
+}
+
+// ------------------------------------------------------------ HELP
+function viewHelp() {
+  const groups = HELP.filter(g => !g.admin || S.user.admin);
+  $('#main').innerHTML = `${title('Help', 'How everything works, and what to do when something doesn’t')}
+    <input class="search help-search" id="hq" placeholder="Search help, e.g. password, hook, reactions…" value="${esc(S.helpQ || '')}">
+    <div class="help-toc" id="htoc">${groups.map(g => `<a href="#" data-g="${esc(g.group)}">${esc(g.group)}</a>`).join('')}</div>
+    <div id="hbody"></div>
+    <p class="note">Still stuck? Post in Smack Talk or text Tarun.</p>`;
+  const draw = () => {
+    const q = (S.helpQ || '').trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
+    const match = t => !words.length || words.every(w => (t.title + ' ' + t.keys + ' ' + t.body.replace(/<[^>]+>/g, ' ')).toLowerCase().includes(w));
+    const html = groups.map(g => { const ts = g.topics.filter(match); if (!ts.length) return '';
+      return `<section class="help-group" data-group="${esc(g.group)}"><h3 class="help-gh">${esc(g.group)}</h3>${ts.map(t =>
+        `<details class="panel help-item" id="help-${t.id}" ${words.length ? 'open' : ''}><summary>${esc(t.title)}</summary><div class="help-body">${t.body}</div></details>`).join('')}</section>`; }).join('');
+    $('#hbody').innerHTML = html || '<div class="panel empty">No help topics match that. Try another word, or ask in Smack Talk.</div>';
+  };
+  draw();
+  $('#hq').oninput = e => { S.helpQ = e.target.value; draw(); };
+  $$('#htoc a').forEach(a => a.onclick = e => { e.preventDefault(); S.helpQ = ''; $('#hq').value = ''; draw();
+    document.querySelector(`[data-group="${CSS.escape(a.dataset.g)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+}
+
+// ------------------------------------------------------------ ADMIN (Tarun)
+function viewAdmin() {
+  if (!S.user.admin) return go('gameday');
+  $('#main').innerHTML = `${title('Upload', 'Commissioner files go in here and everyone sees the update')}
+    ${db.LOCAL ? `<div class="panel insight"><p>Preview mode is read-only. Uploads need the Supabase backend.</p></div>` : ''}
+    <div class="grid two">
+      <div class="panel insight"><h3>📄 Weekly picks sheets (.xls)</h3><p>Drop one or more pick sheets for week ${S.week.week} (e.g. <code>2026.Week4.FirstLast.xls</code>). A sheet with many rows (the whole league) works too.</p>
+        <div class="drop" id="dropPicks" style="margin-top:10px">Drop .xls files here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="filePicks" accept=".xls,.xlsx" multiple hidden></label></div><div id="picksOut" class="note"></div></div>
+      <div class="panel insight"><h3>📊 Yearly totals (.xls)</h3><p>The commissioner's "Yearly totals through Week N" workbook. Replaces the standings.</p>
+        <div class="drop" id="dropTotals" style="margin-top:10px">Drop the totals .xls here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileTotals" accept=".xls,.xlsx" hidden></label></div><div id="totalsOut" class="note"></div></div>
+    </div>
+    <div class="panel insight" style="margin-top:12px"><h3>🎙️ The Commentator</h3>
+      <p>Color commentary in Smack Talk when family picks swing, from the commentator program running on Tarun's PC. It only posts while that program is running.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600"><input type="checkbox" id="commOn" ${S.settings?.commentary === false ? '' : 'checked'}> Commentary on</label>
+      <div id="commOut" class="note"></div></div>
+    <p class="note">New week odds sheets (.doc) are built with <code>tools/build-week.mjs</code> and pushed with <code>tools/push-data.mjs</code>. Watson or Claude can run that.</p>`;
+  const wire = (drop, input, fn) => { const d = $(drop); d.ondragover = e => { e.preventDefault(); d.classList.add('over'); }; d.ondragleave = () => d.classList.remove('over');
+    d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); fn([...e.dataTransfer.files]); }; $(input).onchange = e => fn([...e.target.files]); };
+  wire('#dropPicks', '#filePicks', uploadPicks); wire('#dropTotals', '#fileTotals', uploadTotals);
+  $('#commOn').onchange = async e => { const out = $('#commOut');
+    try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, commentary: e.target.checked }; await db.saveDataset('settings', S.settings);
+      out.textContent = e.target.checked ? 'On. The Commentator will chime in.' : 'Muted. The Commentator stays quiet until you turn it back on.'; }
+    catch (err) { out.textContent = 'Failed: ' + err.message; e.target.checked = !e.target.checked; } };
+}
+async function sheetRows(file) {
+  const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+  const wb = XLSX.read(await file.arrayBuffer(), { cellFormula: false, cellHTML: false }); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, blankrows: false, defval: '' });
+}
+// Upload flow: read -> validate -> preview (new / changed / unchanged / rejected) -> Confirm -> merge into
+// the latest saved copy -> save. Nothing is written until Confirm.
+function fileProblems(files) { return files.map(checkFile).filter(Boolean); }
+const pill = (cls, t) => `<span class="upill ${cls}">${t}</span>`;
+
+async function uploadPicks(files) {
+  const out = $('#picksOut'); out.innerHTML = 'Reading…';
+  const probs = fileProblems(files); if (probs.length) { out.innerHTML = probs.map(esc).join('<br>'); return; }
+  try {
+    const latest = await db.loadDataset(`week${S.week.week}`) || S.week;
+    const all = [], fileErrors = [];
+    for (const file of files) { const r = parsePickRows(await sheetRows(file), latest, file.name); all.push(...r.entries); fileErrors.push(...r.fileErrors); }
+    const names = new Map();
+    for (const e of all) { const k = e.name.toLowerCase(); if (k && names.has(k) && names.get(k) !== e.file) e.errors.push(`also in ${names.get(k)}`); names.set(k, e.file); }
+    const rows = all.map(e => ({ e, d: e.errors.length ? { status: 'rejected', changes: [] } : diffPicks(latest.picks?.[e.name], e) }));
+    const toSave = rows.filter(r => r.d.status === 'new' || r.d.status === 'changed');
+    const count = s => rows.filter(r => r.d.status === s).length;
+    const label = { new: ['new', 'new'], changed: ['changed', 'changed'], unchanged: ['same', 'already loaded'], rejected: ['bad', 'rejected'] };
+    out.innerHTML = `${fileErrors.map(x => `<div class="err">${esc(x)}</div>`).join('')}
+      <div class="upl-sum">${pill('new', count('new') + ' new')} ${pill('changed', count('changed') + ' changed')} ${pill('same', count('unchanged') + ' already loaded')} ${pill('bad', count('rejected') + ' rejected')}</div>
+      ${rows.length ? `<div class="tbl-wrap"><table class="upl"><thead><tr><th class="l">Entry</th><th class="l">Status</th><th class="l">Details</th></tr></thead><tbody>
+      ${rows.map(({ e, d }) => `<tr><td class="l">${esc(e.name || '(no name)')}<br><small class="muted">${esc(e.file)}</small></td>
+        <td class="l">${pill(...label[d.status])}</td>
+        <td class="l">${[...e.errors.map(x => `<span class="err">✗ ${esc(x)}</span>`), ...d.changes.map(x => `↻ ${esc(x)}`), ...e.warnings.map(x => `<span class="muted">⚠ ${esc(x)}</span>`)].join('<br>') || '<span class="muted">10 picks, all on this week’s sheet</span>'}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
+      ${toSave.length ? `<button class="btn gold" id="picksGo" style="margin-top:10px">Save ${toSave.length} entr${toSave.length === 1 ? 'y' : 'ies'}</button> <button class="btn ghost" id="picksNo" style="margin-top:10px">Cancel</button>`
+        : '<p class="muted">Nothing new to save.</p>'}`;
+    if (!toSave.length) return;
+    $('#picksNo').onclick = () => { out.innerHTML = 'Cancelled. Nothing was saved.'; };
+    $('#picksGo').onclick = async () => {
+      $('#picksGo').disabled = true; out.insertAdjacentHTML('beforeend', '<p class="muted">Saving…</p>');
+      try {
+        const fresh = await db.loadDataset(`week${S.week.week}`) || S.week;      // merge into the newest copy
+        fresh.picks ??= {};
+        for (const { e } of toSave) fresh.picks[e.name] = { conf: e.conf, tiebreaker: e.tiebreaker };
+        fresh.picksUpdated = new Date().toISOString();
+        await db.saveDataset(`week${S.week.week}`, fresh); S.week = fresh;
+        out.innerHTML = `✅ Saved ${toSave.length}: ${esc(toSave.map(r => r.e.name).join(', '))}. Everyone sees it on their next refresh.`;
+      } catch (err) { out.innerHTML = `<span class="err">Save failed: ${esc(err.message)}</span>`; }
+    };
+  } catch (err) { out.innerHTML = `<span class="err">Couldn't read that file: ${esc(err.message)}</span>`; }
+}
+
+async function uploadTotals(files) {
+  const out = $('#totalsOut'); out.innerHTML = 'Reading…';
+  if (files.length !== 1) { out.innerHTML = 'Drop one totals workbook at a time.'; return; }
+  const probs = fileProblems(files); if (probs.length) { out.innerHTML = probs.map(esc).join('<br>'); return; }
+  try {
+    const { members, fileErrors, errors } = parseTotalsRows(await sheetRows(files[0]), files[0].name);
+    if (fileErrors.length) { out.innerHTML = fileErrors.map(x => `<div class="err">${esc(x)}</div>`).join(''); return; }
+    const latest = await db.loadDataset('league') || S.league || {};
+    const d = diffTotals(latest.members, members);
+    const list = (h, xs, cls = '') => xs.length ? `<h4 style="margin:10px 0 4px">${h}</h4><div class="${cls}">${xs.slice(0, 40).map(esc).join('<br>')}${xs.length > 40 ? `<br>…and ${xs.length - 40} more` : ''}</div>` : '';
+    if (d.unchanged && !errors.length) { out.innerHTML = `${pill('same', 'already loaded')} This workbook matches the current standings (${members.length} entries). Nothing to save.`; return; }
+    out.innerHTML = `<div class="upl-sum">${pill('new', members.length + ' entries')} ${d.filledWeeks.length ? pill('changed', 'new scores: week ' + d.filledWeeks.join(', ')) : ''} ${d.corrections.length ? pill('bad', d.corrections.length + ' past scores changed') : ''} ${errors.length ? pill('bad', errors.length + ' problems') : ''}</div>
+      ${list('Problems (these cells are left blank)', errors, 'err')}
+      ${list('Past scores that would change (double-check these)', d.corrections)}
+      ${list('New entries', d.added)}${list('Entries missing from this file (would be removed)', d.removed, 'err')}
+      ${d.removed.length || d.corrections.length ? `<label style="display:flex;gap:8px;margin-top:10px"><input type="checkbox" id="totAck"> I've checked the changes above and want to save them</label>` : ''}
+      <button class="btn gold" id="totGo" style="margin-top:10px">Save standings</button> <button class="btn ghost" id="totNo" style="margin-top:10px">Cancel</button>`;
+    $('#totNo').onclick = () => { out.innerHTML = 'Cancelled. Nothing was saved.'; };
+    $('#totGo').onclick = async () => {
+      if ($('#totAck') && !$('#totAck').checked) { alert('Please tick the box to confirm the flagged changes.'); return; }
+      $('#totGo').disabled = true;
+      try {
+        const fresh = await db.loadDataset('league') || {};
+        const through = Math.max(0, ...members.map(m => m.weeks.reduce((w, v, i) => v != null ? i + 1 : w, 0)));
+        S.league = { ...fresh, members, through, built: new Date().toISOString() };
+        await db.saveDataset('league', S.league);
+        out.innerHTML = `✅ Saved standings for ${members.length} entries (through week ${through}).`;
+      } catch (err) { out.innerHTML = `<span class="err">Save failed: ${esc(err.message)}</span>`; }
+    };
+  } catch (err) { out.innerHTML = `<span class="err">Couldn't read that file: ${esc(err.message)}</span>`; }
+}

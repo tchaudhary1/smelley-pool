@@ -1,0 +1,24 @@
+{
+  "name": "smelley-pool",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "serve": "node tools/serve.mjs 5173",
+    "build": "node tools/build-week.mjs",
+    "push": "node tools/push-data.mjs",
+    "users": "node tools/setup-users.mjs",
+    "commentator": "node tools/commentator.mjs",
+    "setup-bot": "node tools/setup-bot.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.117.1",
+    "sharp": "^0.35.4",
+    "word-extractor": "^1.0.4",
+    "xlsx": "^0.18.5"
+  },
+  "type": "module",
+  "private": true
+}
