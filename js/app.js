@@ -158,6 +158,9 @@ const pctile = (rank, n) => Math.round(100 * (n - rank) / Math.max(1, n - 1));
 // ============================================================ render
 function render() {
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
+  document.body.classList.toggle('talk-mode', S.tab === 'talk');
+  const activeTab = $('#tabs button.on');
+  if (activeTab) { const nav = $('#tabs'); nav.scrollTo({ left: activeTab.offsetLeft - (nav.clientWidth - activeTab.offsetWidth) / 2, behavior: 'smooth' }); }
   const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, admin: viewAdmin, help: viewHelp };
   (views[S.tab] || viewGameDay)();
 }
@@ -425,11 +428,16 @@ function viewTalk() {
     .map(g => `<option value="${g.fav_no}">${esc(g.fav)} v ${esc(g.dog)}</option>`).join('');
   $('#main').innerHTML = `${title('Smack Talk', 'Family only. Keep it spicy, keep it loving')}
     <div class="panel chat"><div class="feed" id="feed">${feed()}</div>
-      <form class="compose" id="compose"><textarea id="body" maxlength="1000" placeholder="Say something… (Enter to send)">${esc(S.draft || '')}</textarea>
-        <select id="gtag"><option value="">No game tag</option>${opts}</select><button class="btn gold" type="submit">Send</button></form></div>`;
+      <form class="compose" id="compose">
+        <label class="gtag-pick" title="Attach a game"><span aria-hidden="true">🏈</span><select id="gtag" aria-label="Attach a game"><option value="">No game tag</option>${opts}</select></label>
+        <textarea id="body" rows="1" maxlength="1000" enterkeyhint="send" placeholder="Message… (@ to mention)">${esc(S.draft || '')}</textarea>
+        <button class="btn gold send" type="submit" aria-label="Send"><span class="send-txt">Send</span><span class="send-ico" aria-hidden="true">➤</span></button></form></div>`;
+  fitChat();
   const f = $('#feed'); f.scrollTop = f.scrollHeight;
-  const hadFocus = S.draftFocus; $('#body').oninput = e => S.draft = e.target.value;
-  $('#body').onfocus = () => S.draftFocus = true; $('#body').onblur = () => S.draftFocus = false;
+  const grow = () => { const b = $('#body'); b.style.height = 'auto'; b.style.height = Math.min(b.scrollHeight, 132) + 'px'; };
+  grow();
+  const hadFocus = S.draftFocus; $('#body').oninput = e => { S.draft = e.target.value; grow(); };
+  $('#body').onfocus = () => { S.draftFocus = true; setTimeout(() => { fitChat(); const fd = $('#feed'); if (fd) fd.scrollTop = fd.scrollHeight; }, 250); }; $('#body').onblur = () => S.draftFocus = false;
   if (hadFocus) { const b = $('#body'); b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
   if (S.gtag) $('#gtag').value = S.gtag; $('#gtag').onchange = e => S.gtag = e.target.value;
   $('#compose').onsubmit = async e => { e.preventDefault(); const body = $('#body').value.trim(); if (!body) return;
@@ -440,6 +448,20 @@ function viewTalk() {
   bindReactions($('#main'));
   $$('.gtag').forEach(el => el.onclick = () => openGame(+el.dataset.game));
   $$('[data-del]').forEach(b => b.onclick = async () => { if (confirm('Delete this message?')) { await db.deleteMessage(+b.dataset.del); await refreshSocial(); viewTalk(); } });
+}
+// Size the chat to the visible screen (minus the header), tracking the on-screen keyboard.
+function fitChat() {
+  const chat = $('.chat'); if (!chat) return;
+  if (!window.matchMedia('(max-width: 640px)').matches) { chat.style.height = ''; return; }
+  const vv = window.visualViewport; const h = vv ? vv.height : window.innerHeight;
+  const top = $('header.top').getBoundingClientRect().height;
+  chat.style.height = Math.max(260, h - top) + 'px';
+}
+if (!window.__fitChatBound) {
+  window.__fitChatBound = true;
+  const onVV = () => { if (S.tab !== 'talk') return; fitChat(); window.scrollTo(0, 0); const fd = $('#feed'); if (fd) fd.scrollTop = fd.scrollHeight; };
+  window.visualViewport?.addEventListener('resize', onVV);
+  window.addEventListener('resize', onVV); window.addEventListener('orientationchange', onVV);
 }
 function feed() {
   if (!S.msgs.length) return `<div class="empty">No trash talk yet. Somebody has to start it.</div>`;

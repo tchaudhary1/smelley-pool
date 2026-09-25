@@ -22,7 +22,7 @@ export const FAMILY = [
 ];
 
 // The chat bot (tools/commentator.mjs). Not a pool entry.
-export const BOT = { key: 'commentator', short: 'The Commentator', initial: '🎙️', color: '#1d2b4a', bot: true };
+export const BOT = { key: 'commentator', short: 'The Commentator', initial: '🎙️', color: '#9a7a2c', bot: true };
 
 export const MOTTO = 'NULLUM PRAESIDIUM SECURUM EST';
 export const MOTTO_EN = 'No lead is safe';
