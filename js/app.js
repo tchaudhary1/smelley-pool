@@ -78,11 +78,14 @@ function drawThemeBtn() {
 async function watchVersion() {
   if (db.LOCAL) return;
   const stamp = r => r.headers.get('etag') || r.headers.get('last-modified');
-  let base; try { base = stamp(await fetch('js/app.js', { cache: 'force-cache' })); } catch { return; }
+  // Watch the script and the stylesheet, so a style-only update is noticed too.
+  const WATCH = ['js/app.js', 'css/app.css'];
+  const stamps = async opts => (await Promise.all(WATCH.map(u => fetch(u, opts).then(stamp)))).join('|');
+  let base; try { base = await stamps({ cache: 'force-cache' }); } catch { return; }
   if (!base) return;
   setInterval(async () => {
     if (document.hidden || $('.update-bar')) return;
-    let now; try { now = stamp(await fetch('js/app.js', { method: 'HEAD', cache: 'no-store' })); } catch { return; }
+    let now; try { now = await stamps({ method: 'HEAD', cache: 'no-store' }); } catch { return; }
     if (!now || now === base) return;
     const bar = document.createElement('div'); bar.className = 'update-bar'; bar.setAttribute('role', 'status');
     bar.innerHTML = 'A new version of the dashboard is ready. <button type="button">Reload</button>';
