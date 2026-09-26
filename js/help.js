@@ -161,7 +161,8 @@ export const HELP = [
       <li>"@Commentator what if Georgia covers and Penn State doesn't?" (it re-runs the simulation with those results locked in)</li>
       <li>"@Commentator what does Jamie need to win the week?"</li>
       <li>"@Commentator how does Wyatt Johnson pick?" or "who in the family is best with their 10s?" (it knows past seasons too)</li>
-      <li>"@Commentator how did I do in 2024 compared with 2025?" or "does going contrarian actually work?"</li></ul>
+      <li>"@Commentator how did I do in 2024 compared with 2025?" or "does going contrarian actually work?"</li>
+      <li>"@Commentator how often has Shannon picked against Georgia?" or "how has the family done on Eagles games?" (it checks every pick on that team's games in both past seasons and this week)</li></ul>
       <p>It also knows each week's <b>league storylines</b> and the <b>news</b> for games with family picks (ESPN headlines, NFL injuries, line moves).</p>
       <p><b>Real-world news questions</b> ("Is Jayden Daniels playing Sunday?", "Any injury news for Georgia?") get a quick web search of major sports sites (ESPN, AP, CBS, Fox, NFL.com and a few others). It says where the news came from, and if it can't confirm something, it says so. These answers take a little longer, about 15–30 seconds. It only searches for teams and players, never anyone's name from the family or the league.</p>
       <p>If the answer isn't in the data, it says so rather than guessing.</p>

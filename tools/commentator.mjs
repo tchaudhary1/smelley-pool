@@ -23,7 +23,7 @@ import { fetchLive, gameState, gradeEntry, indexGames, fmtHalf } from '../js/liv
 import { buildModel } from '../js/model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from '../js/sim.js';
 import { buildBrief } from '../js/brief.js';
-import { buildContext, scoutingReport, reportText, historySummary } from '../js/profile.js';
+import { buildContext, scoutingReport, reportText, historySummary, teamsInText, teamPickText } from '../js/profile.js';
 import { samePerson } from '../js/names.js';
 import { leagueStorylines } from '../js/storylines.js';
 import { fetchGameNews, newsFacts } from '../js/news.js';
@@ -548,8 +548,16 @@ async function tick() {
     if (hctx && self && /\b(i|me|my|mine|i'm|i've)\b/i.test(question) && !people.some(n => samePerson(n, self.pool))) people.unshift(self.pool);
     askPeople = people;
     const reports = people.map(n => reportText(scoutingReport(hctx, n))).join('\n\n');
+    // Questions about a person and a team ("how often has Shannon picked against Georgia?"):
+    // that person's every pick on that team's games, both past seasons plus this week.
+    const teams = hctx ? teamsInText(hctx, question, P.week.games) : [];
+    const who = /\b(family|everyone|everybody|all of us|we all)\b/i.test(question) ? P.fam.filter(f => !f.shadow && f.pool).map(f => f.pool) : people;
+    const thisWeek = [{ label: `this season (week ${P.week.week})`, week: P.week.week, games: P.week.games, picks: P.week.picks }];
+    const teamFacts = teams.length ? who.slice(0, 5).flatMap(n => teams.slice(0, 3).map(t => teamPickText(hctx, n, t, thisWeek))).join('\n') : '';
+    if (teamFacts) log('team picks for:', teams.map(t => t.key).join(', '));
     if (people.length) log('scouting reports for:', people.join(', '));
-    const brief = (C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history, storylines, news: newsBrief }) : 'No picks loaded yet.') + (reports ? '\n\nSCOUTING REPORTS FOR PEOPLE IN THE QUESTION:\n' + reports : '');
+    const brief = (C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history, storylines, news: newsBrief }) : 'No picks loaded yet.') + (reports ? '\n\nSCOUTING REPORTS FOR PEOPLE IN THE QUESTION:\n' + reports : '')
+      + (teamFacts ? "\n\nTEAM PICK HISTORY (every pick each person made on that team's games; FOR = picked that team, AGAINST = picked its opponent):\n" + teamFacts : '');
     const scenario = C ? await parseScenario(P, live, question) : [];
     const scen = scenario.length ? scenarioFacts(P, live, C, scenario) : '';
     if (scenario.length) log('scenario:', scenario.map(s => `${s.fav_no}:${s.fav_covers ? 'fav' : 'dog'}`).join(','));

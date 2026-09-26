@@ -213,6 +213,69 @@ export function leagueLessons(ctx, yr = Object.keys(ctx.seasons).sort().pop()) {
   return out.sort((x, y) => Math.abs(y.z) - Math.abs(x.z));
 }
 
+// ---------------------------------------------------------------- one person's picks on one team
+// Sheet spellings vary ("Georgia St" / "Georgia St.", capitals mark the home team, a few typos), so
+// names compare by a normalized key. Exact keys only: "georgia" never matches "georgia tech".
+const TYPO = { detriot: 'detroit', philadephia: 'philadelphia', indianopolis: 'indianapolis', 'cincinnat i': 'cincinnati' };
+export const teamKey = s => { const k = String(s || '').toLowerCase().replace(/\(/g, ' ').replace(/[^a-z0-9 ]/g, '').replace(/\bstate\b/g, 'st').replace(/\s+/g, ' ').trim(); return TYPO[k] || k; };
+const NFL_NICK = { cardinals: 'arizona', falcons: 'atlanta', ravens: 'baltimore', bills: 'buffalo', panthers: 'carolina', bears: 'chicago', bengals: 'cincinnati',
+  browns: 'cleveland', cowboys: 'dallas', broncos: 'denver', lions: 'detroit', packers: 'green bay', texans: 'houston', colts: 'indianapolis', jaguars: 'jacksonville',
+  jags: 'jacksonville', chiefs: 'kansas city', raiders: 'las vegas', chargers: 'la chargers', rams: 'la rams', dolphins: 'miami', vikings: 'minnesota', patriots: 'new england',
+  pats: 'new england', saints: 'new orleans', giants: 'ny giants', jets: 'ny jets', eagles: 'philadelphia', steelers: 'pittsburgh', '49ers': 'san francisco', niners: 'san francisco',
+  seahawks: 'seattle', buccaneers: 'tampa bay', bucs: 'tampa bay', titans: 'tennessee', commanders: 'washington' };
+const CFB_NICK = { 'ole miss': 'mississippi', uga: 'georgia', bama: 'alabama', hurricanes: 'miami', 'florida international': 'fiu', 'central florida': 'ucf' };
+const leagueWord = l => (l === 'NFL' ? 'NFL' : 'college');
+
+// Teams named in a question: [{ key, league }] (league null = either). Longest names match first.
+export function teamsInText(ctx, text, extraGames = []) {
+  let t = ` ${teamKey(text)} `; const out = [];
+  const take = (phrase, key, league) => { const p = ` ${phrase} `; if (!t.includes(p)) return; t = t.split(p).join(' # '); if (!out.some(x => x.key === key && x.league === league)) out.push({ key, league }); };
+  for (const [n, k] of Object.entries(CFB_NICK)) take(teamKey(n), k, 'CFB');
+  for (const [n, k] of Object.entries(NFL_NICK)) take(n, k, 'NFL');
+  const known = new Set();
+  for (const s of Object.values(ctx?.seasons || {})) for (const w of s.archive.weeks) for (const g of w.games) { known.add(teamKey(g.fav)); known.add(teamKey(g.dog)); }
+  for (const g of extraGames) { known.add(teamKey(g.fav)); known.add(teamKey(g.dog)); }
+  for (const k of [...known].filter(k => k.length >= 3).sort((a, b) => b.length - a.length)) take(k, k, null);
+  return out;
+}
+
+// Every pick a person made on a team's games: by season, for vs against, and whether each covered.
+// extra: [{ label, games, picks }] for weeks not in the archives (this season's loaded weeks).
+export function teamPickHistory(ctx, name, team, extra = []) {
+  const sources = Object.entries(ctx?.seasons || {}).sort().flatMap(([yr, s]) => s.archive.weeks.filter(w => w.picks).map(w => ({ label: yr, week: w.week, games: w.games, picks: w.picks })));
+  for (const x of extra) if (x.picks) sources.push(x);
+  const seasons = new Map();
+  for (const w of sources) {
+    const S = seasons.get(w.label) || { label: w.label, onSheet: 0, rows: [], played: false }; seasons.set(w.label, S);
+    const pk = findIn(Object.keys(w.picks), name); if (pk) S.played = true;
+    const hit = w.games.filter(g => (teamKey(g.fav) === team.key || teamKey(g.dog) === team.key) && (!team.league || (g.league || 'CFB') === team.league));
+    if (!hit.length) continue; S.onSheet++;
+    const p = pk ? w.picks[pk] : null; if (!p) continue;
+    for (const [c, no] of Object.entries(p.conf)) for (const g of hit) {
+      if (no !== g.fav_no && no !== g.dog_no) continue;
+      const side = no === g.fav_no ? 'fav' : 'dog', pickedTeam = side === 'fav' ? g.fav : g.dog, forTeam = teamKey(pickedTeam) === team.key;
+      const covered = g.favCovers == null ? null : (side === 'fav') === g.favCovers;
+      S.rows.push({ week: w.week, conf: +c, forTeam, pick: `${pickedTeam} ${side === 'fav' ? '−' : '+'}${g.spread}`, opp: side === 'fav' ? g.dog : g.fav, league: g.league || 'CFB', covered });
+    }
+  }
+  return [...seasons.values()];
+}
+export function teamPickText(ctx, name, team, extra = []) {
+  const label = team.key.replace(/\b\w/g, ch => ch.toUpperCase()) + (team.league ? ` (${leagueWord(team.league)})` : '');
+  const res = (rows) => { const d = rows.filter(r => r.covered != null); return d.length ? `, covered ${d.filter(r => r.covered).length} of ${d.length}` : ''; };
+  // Lead with the direct answer (counts for and against, by season), then the week-by-week detail.
+  const hist = teamPickHistory(ctx, name, team, extra).filter(s => s.onSheet);
+  const tally = which => hist.map(s => !s.played ? `${s.label} no sheets on file` : (() => { const r = s.rows.filter(x => x.forTeam === (which === 'for')); return `${s.label} ${r.length === 0 ? 'never' : r.length === 1 ? 'once' : r.length + ' times'}${res(r)}`; })()).join('; ');
+  const head = hist.length ? `${name} picked AGAINST ${label}: ${tally('against')}. Picked FOR ${label}: ${tally('for')}.` : '';
+  const parts = hist.map(s => {
+    if (!s.played) return `${s.label}: ${name} has no pick sheets on file for that season (not in the pool, or sheets not loaded).`;
+    const on = s.rows.filter(r => r.forTeam), off = s.rows.filter(r => !r.forTeam);
+    const detail = s.rows.map(r => `wk${r.week}: ${r.conf} on ${r.pick} vs ${r.opp}${team.league ? '' : ` (${leagueWord(r.league)})`}${r.covered == null ? ' (pending)' : r.covered ? ' (covered)' : ' (lost)'}`).join('; ');
+    return `${s.label}: ${label} was on the sheet ${s.onSheet} week${s.onSheet === 1 ? '' : 's'}; picked FOR ${label} ${on.length} time${on.length === 1 ? '' : 's'}${res(on)}, AGAINST ${off.length} time${off.length === 1 ? '' : 's'}${res(off)}${detail ? `. ${detail}` : ''}.`;
+  });
+  return `TEAM PICKS: ${name} and ${label}. ${head ? `ANSWER: ${head} DETAIL: ` : ''}${parts.length ? parts.join(' ') : `${label} wasn't on any sheet on file.`}`;
+}
+
 // Did each league-wide pattern hold from season to season? Uses only years where the pattern was
 // clearly there on its own (|z| >= 2): opposite signs = flipped; the same direction every year (|z| >= 1 each) and
 // significant combined = held; significant in one year only = one-year; otherwise noise.
