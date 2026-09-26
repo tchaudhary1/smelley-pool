@@ -8,6 +8,23 @@ Things we've agreed to revisit. Newest decisions at the top of each section.
 Run `node tools/after-action.mjs 2026-09-26` and go through uptime, response times, errors and
 chat engagement before changing anything else.
 
+### Fixes noted during the Sep 26 live run
+- **Avatars: two "J"s.** Jamie and Joe both show "J" in small avatars (tables, rivalry grid, pick chips,
+  chat); color alone is a weak cue, especially for anyone color-blind. Fix: use two letters when first
+  initials collide ("Ja" / "Jo"), or each person's emoji from `js/config.js` (🍑 🚂 🦬 ⚾ 🏈), with the
+  full name in the tooltip.
+- **Commentator over-explains basics** ("point spread (the projected margin)"): soften the plain-words
+  rule to explain only unusual terms, never spread/favorite/underdog/cover.
+- **What-ifs on decided games** (Toledo up 40–9 with 13 minutes left, "odds stay flat at 51%"): skip
+  games whose live cover chance is above ~90% or below ~10%.
+- **"Today's biggest stakes" runs once a day** (the noon wave only): give each kickoff wave
+  (noon, 3:30, evening, Sunday 1:00/4:25) its own heads-up.
+- **Quiet stretches with many games live:** consider a light halftime/"state of the race" nudge when
+  nothing has posted for 30+ minutes during live games.
+- Fixed during the run (for the record): the question plan was shadowed by the drafting function (every
+  post logged as a question; reply reactions failed); reply failures now count as errors so the
+  watchdog sees them.
+
 ### Move the Commentator off the PC
 Today it runs inside a Claude Code session on Tarun's desktop, so it stops if the app closes.
 Plan: run it as a service on Tarun's server (auto-start, restart on crash), keep the monitor log,
