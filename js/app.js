@@ -146,7 +146,7 @@ async function start() {
   } catch (err) { $('#main').innerHTML = `<div class="empty">Couldn't load pool data: ${esc(err.message)}</div>`; return; }
   if (!S.week) { $('#main').innerHTML = `<div class="empty">No data for this week yet.</div>`; return; }
   await Promise.all([refreshLive(), refreshSocial()]);
-  db.subscribe(() => refreshSocial().then(() => { botReplied(); if (S.tab === 'talk') render(); else updateUnread(); }),
+  db.subscribe(() => syncChat(),
     ({ on }) => { if (on) botWait('typing'); else if (S.botWait?.phase === 'typing') botWait(null); });
   const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(hash)) S.tab = hash;
   // Deep links: ?season=2024|all opens History on that season, ?profile=<name> opens a scouting report.
@@ -157,7 +157,10 @@ async function start() {
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
   if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { updateUnread(); refreshLive().then(render); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); refreshLive().then(render); } });
+  window.addEventListener('online', () => syncChat());
+  setInterval(() => { if (!document.hidden) syncChat(); }, 20e3);
+  chatSig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
 }
 function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
 
@@ -206,7 +209,21 @@ async function refreshLive() {
   $('#liveTxt').textContent = n ? `${n} live` : `updated ${S.lastLive.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 async function refreshSocial() {
-  [S.msgs, S.reacts] = await Promise.all([db.listMessages(), db.listReactions()]).catch(() => [[], []]);
+  // A failed fetch (weak signal) keeps what's on screen rather than emptying the chat.
+  const got = await Promise.all([db.listMessages(), db.listReactions()]).catch(() => null);
+  if (got) [S.msgs, S.reacts] = got;
+}
+// Fetch the chat and update whatever shows it. Realtime pushes changes instantly, but phones drop
+// that connection when the screen locks or the app is in the background, and nothing is replayed
+// afterwards; so this also runs on return to the page, on reconnect, and every 20 s while visible.
+// It only redraws Smack Talk when something actually changed.
+let chatSig = '';
+async function syncChat() {
+  await refreshSocial();
+  const sig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
+  const changed = sig !== chatSig; chatSig = sig;
+  if (changed) botReplied();
+  if (changed && S.tab === 'talk' && !$('.modal')) render(); else updateUnread();
 }
 function schedule() {
   clearTimeout(S.timer);
