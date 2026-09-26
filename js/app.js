@@ -226,6 +226,8 @@ function entries() {
     return { f, picks, grade: picks ? gradeEntry(picks, S.week, S.live) : null };
   });
 }
+// On-screen league label: "College" rather than the sheet's "CFB".
+const leagueName = g => (g.league === 'CFB' ? 'College' : g.league || '');
 function allEntriesForGame(g) {
   const out = { fav: [], dog: [] };
   for (const e of entries()) if (e.picks) for (const [c, no] of Object.entries(e.picks.conf)) {
@@ -314,7 +316,7 @@ function leadWatch() {
       .sort((a, b) => new Date(a.espn.kickoff) - new Date(b.espn.kickoff)).slice(0, 6);
     if (!next.length) return `<div class="panel empty" style="flex:1">No family games live right now.</div>`;
     return next.map(g => { const on = allEntriesForGame(g);
-      return `<div class="panel lw clickable" data-game="${g.fav_no}"><div class="hd"><span>${g.league} · kicks in ${until(g.espn.kickoff)}</span><span>${etTime(g.espn.kickoff)}</span></div>
+      return `<div class="panel lw clickable" data-game="${g.fav_no}"><div class="hd"><span>${leagueName(g)} · kicks in ${until(g.espn.kickoff)}</span><span>${etTime(g.espn.kickoff)}</span></div>
       <div class="sc"><span style="font-size:14px">${esc(g.fav)} −${fmtHalf(g.spread)}</span></div><div class="sc"><span style="font-size:14px">${esc(g.dog)} +${fmtHalf(g.spread)}</span></div>
       <div class="picks">${[...on.fav, ...on.dog].map(p => pickChip(p, g)).join('')}</div></div>`; }).join('');
   }
@@ -333,7 +335,7 @@ function leadWatch() {
       return `<div class="verdict ${cls}">${avatar(p.e.f)} ${esc(p.e.f.short)} (${p.conf}): ${txt}</div>`;
     }).join('');
     return `<div class="panel lw clickable" data-game="${g.fav_no}">
-      <div class="hd"><span>${g.league} · ${esc(st.detail)}</span><span>cover ${pct(st.pFav)} / ${pct(1 - st.pFav)}</span></div>
+      <div class="hd"><span>${leagueName(g)} · ${esc(st.detail)}</span><span>cover ${pct(st.pFav)} / ${pct(1 - st.pFav)}</span></div>
       <div class="sc"><span style="font-size:14px">${esc(g.fav)} −${fmtHalf(g.spread)}</span><span>${st.favScore}</span></div>
       <div class="sc"><span style="font-size:14px">${esc(g.dog)} +${fmtHalf(g.spread)}</span><span>${st.dogScore}</span></div>
       <div class="muted" style="font-size:12px;margin-bottom:4px">${head}</div>${lines}</div>`;
@@ -371,7 +373,7 @@ function gameRow(g) {
       <span class="sp">${sideSpread(g, side)}</span>${g.home === side ? '<span class="home">HOME</span>' : ''}<span class="pn">#${no}</span></div>`;
   };
   const mid = st.state === 'pre'
-    ? `<div class="score" style="font-size:14px">${etTime(g.espn?.kickoff)}</div><div class="st">${esc(g.league)}${S.live.get(g.espn?.id)?.broadcast ? ' · ' + esc(S.live.get(g.espn.id).broadcast) : ''}</div>`
+    ? `<div class="score" style="font-size:14px">${etTime(g.espn?.kickoff)}</div><div class="st">${esc(leagueName(g))}${S.live.get(g.espn?.id)?.broadcast ? ' · ' + esc(S.live.get(g.espn.id).broadcast) : ''}</div>`
     : `<div class="score">${st.favScore}–${st.dogScore}</div><div class="st ${st.state === 'in' ? 'in' : ''}">${esc(st.detail)}</div>
        <div class="coverbar" title="${esc(g.fav)} cover chance ${pct(st.pFav)}"><i style="left:0;width:${st.pFav * 100}%"></i></div>`;
   const hookNote = st.state === 'post' && Math.abs(st.margin - g.spread) === 0.5 ? `<div class="hook">DECIDED BY THE HOOK</div>` : '';
@@ -663,7 +665,7 @@ function insights(E) {
   const modelFav = [...withModel].sort((a, b) => b.m.p - a.m.p)[0], modelHate = [...withModel].sort((a, b) => a.m.p - b.m.p)[0];
   const early = all.filter(r => new Date(r.g.espn.kickoff) < new Date(S.week.games.find(g => g.day === 'Saturday')?.espn?.kickoff || 0)).sort((a, b) => b.conf - a.conf)[0];
   out.push(card('🎯', 'Boldest confidence', `${esc(top.e.f.short)} put <b>${top.conf}</b> on ${esc(sideName(top.g, top.side))} ${sideSpread(top.g, top.side)}${top.st.state !== 'pre' ? `: currently <b>${top.status}</b>` : ''}.`, top.g.fav_no));
-  if (biggestDog) out.push(card('🐕', 'Biggest dog bite', `${esc(biggestDog.e.f.short)} is taking ${esc(sideName(biggestDog.g, 'dog'))} +${fmtHalf(biggestDog.g.spread)} for ${biggestDog.conf} points.`, biggestDog.g.fav_no));
+  if (biggestDog) out.push(card('🐕', 'Boldest underdog pick', `${esc(biggestDog.e.f.short)} is taking ${esc(sideName(biggestDog.g, 'dog'))} +${fmtHalf(biggestDog.g.spread)} for ${biggestDog.conf} points.`, biggestDog.g.fav_no));
   if (popular && popular.length > 1) out.push(card('🤝', 'Family consensus', `${popular.map(r => esc(r.e.f.short)).join(', ')} all have ${esc(sideName(popular[0].g, popular[0].side))} ${sideSpread(popular[0].g, popular[0].side)}.`, popular[0].g.fav_no));
   if (lonely) out.push(card('🏝️', 'Loneliest pick', `Only ${esc(lonely.e.f.short)} is on ${esc(sideName(lonely.g, lonely.side))} (${lonely.conf} pts).`, lonely.g.fav_no));
   if (early) out.push(card('⏱️', 'Early sweat', `${esc(early.e.f.short)}'s ${early.conf} on ${esc(sideName(early.g, early.side))} goes before Saturday. ${early.st.state === 'post' ? (early.status === 'won' ? 'Already banked.' : 'Already gone. No lead is safe.') : early.st.state === 'in' ? `Live: ${esc(early.st.detail)}.` : ''}`, early.g.fav_no));
@@ -710,12 +712,12 @@ function consensusTable() {
     .sort((a, b) => (b.on.fav.length + b.on.dog.length) - (a.on.fav.length + a.on.dog.length) || new Date(a.g.espn.kickoff) - new Date(b.g.espn.kickoff));
   if (!games.length) return `<div class="empty">No picks loaded yet.</div>`;
   const r = S.week.research || {};
-  return `<table class="stack"><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: fav covers</th><th>Status</th></tr></thead><tbody>
+  return `<table class="stack"><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: favorite covers</th><th>Status</th></tr></thead><tbody>
     ${games.map(({ g, on }) => { const st = gameState(g, S.live, S.week.research); const m = r[g.fav_no];
       return `<tr class="row" data-game="${g.fav_no}"><td class="l st-head">${esc(g.fav)} −${fmtHalf(g.spread)} v ${esc(g.dog)}</td>
       <td class="l" data-label="${esc(g.fav)}">${on.fav.map(p => pickChip(p, g, 'fav')).join(' ') || '<span class="muted">–</span>'}</td>
       <td class="l" data-label="${esc(g.dog)}">${on.dog.map(p => pickChip(p, g, 'dog')).join(' ') || '<span class="muted">–</span>'}</td>
-      <td class="num" data-label="Model: fav covers">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td data-label="Status">${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
+      <td class="num" data-label="Model: favorite covers">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td data-label="Status">${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
 }
 function shadowList() {
   const sh = S.week.shadow; const G = GB();
@@ -890,7 +892,7 @@ function openGame(favNo) {
     const lead = cushion > 0 ? esc(g.fav) : esc(g.dog);
     const safe = st.state === 'in' && cushion != null ? (Math.abs(cushion) < 8 ? `<b>${lead}'s cover is not safe.</b> ${Math.abs(cushion) <= 3.5 ? 'One score flips it.' : 'One possession from trouble.'}` : Math.abs(cushion) < 14 ? `${lead} is comfortable-ish. No lead is truly safe.` : `${lead}'s cover looks safe… (famous last words)`) : '';
     const espnUrl = g.espn ? `https://www.espn.com/${g.espn.sport === 'nfl' ? 'nfl' : 'college-football'}/game/_/gameId/${g.espn.id}` : null;
-    return `${modalHead(`Week ${S.week.week} · ${g.league} · ${st.state === 'pre' ? etTime(g.espn?.kickoff) : st.detail}`, `${esc(g.fav)} −${fmtHalf(g.spread)} <span class="muted">v</span> ${esc(g.dog)}`)}
+    return `${modalHead(`Week ${S.week.week} · ${leagueName(g)} · ${st.state === 'pre' ? etTime(g.espn?.kickoff) : st.detail}`, `${esc(g.fav)} −${fmtHalf(g.spread)} <span class="muted">v</span> ${esc(g.dog)}`)}
       <div class="mb">
         ${st.state === 'pre' ? '' : `<div class="kv"><div><b>${st.favScore}–${st.dogScore}</b><span>${esc(g.fav)}–${esc(g.dog)}</span></div>
           <div><b>${cushion > 0 ? esc(g.fav) : esc(g.dog)}</b><span>covering by ${fmtHalf(Math.abs(cushion))}</span></div>
@@ -901,7 +903,7 @@ function openGame(favNo) {
         <h4>The numbers</h4>
         <div class="kv"><div><b>${esc(g.fav)} −${fmtHalf(g.spread)}</b><span>Pool line (fixed)</span></div>
           <div><b>${esc(live?.odds || '–')}</b><span>ESPN / DraftKings now</span></div>
-          ${rf ? `<div><b>${esc(rf.market ?? "–")}</b><span>Market line for ${esc(g.fav)}</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model: cover chance fav / dog</span></div>` : ''}
+          ${rf ? `<div><b>${esc(rf.market ?? "–")}</b><span>Market line for ${esc(g.fav)}</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model: cover chance, favorite / underdog</span></div>` : ''}
           <div><b>${stake}</b><span>Family points riding</span></div>
           <div><b>${g.home === 'fav' ? esc(g.fav) : g.home === 'dog' ? esc(g.dog) : '–'}</b><span>Home team${g.espn?.neutral ? ' (neutral site)' : ''}</span></div></div>
         ${gameWhatIf(g)}
@@ -1160,7 +1162,7 @@ async function openProfile(name) {
     ${weekly.some(v => v != null) ? `<h4>${chartYr} week by week</h4>${withEntry.length > 1 ? `<div class="filters">${withEntry.map(s => `<button class="chip ${s.season === chartYr ? 'on' : ''}" data-pyr="${s.season}">${s.season}</button>`).join('')}</div>` : ''}<div class="chart" style="padding:0">${lineChart({ labels: weekly.map((_, i) => `W${i + 1}`), yMin: 0, yMax: 55, height: 150,
       series: [{ label: 'League avg', color: 'var(--ink-3)', values: lgAvgW, dash: '4 4' }, { label: name, color: f?.color || 'var(--gold)', values: weekly, width: 3 }] })}</div>
       ${cs.top4.length ? `<div class="note">Weekly top-4 finishes: ${cs.top4.map(t => `Week ${t.week} (#${t.place})`).join(', ')}</div>` : ''}` : ''}
-    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th>${(nb.seasons || []).map((y, i, a) => `<th class="${i < a.length - 1 ? 'opt' : ''}">'${String(y).slice(2)}</th>`).join('')}<th>Cover</th><th>Dogs</th><th class="opt">Order</th></tr></thead>
+    ${nb ? `<h4>The neighborhood (this season's standings)</h4><div class="tbl-wrap"><table class="nb"><thead><tr><th>#</th><th class="l">Name</th><th>Pts</th><th>Gap</th>${(nb.seasons || []).map((y, i, a) => `<th class="${i < a.length - 1 ? 'opt' : ''}">'${String(y).slice(2)}</th>`).join('')}<th>Cover</th><th>Underdogs</th><th class="opt">Order</th></tr></thead>
       <tbody>${[...nb.above, nb.me, ...nb.below].map(nbRow).join('')}</tbody></table></div>
       ${rep.lessons.length ? `<h4>What separates them</h4><ul class="sr-list">${rep.lessons.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : ''}
     ${lessonsLg.length ? `<h4>What held up league-wide, ${ctx.career.label}</h4><ul class="sr-list">${lessonsLg.map(l => `<li>${esc(l.text)}</li>`).join('')}</ul>` : ''}
@@ -1223,7 +1225,7 @@ async function viewHistory() {
     const games = W.games.filter(g => famPicks.some(x => Object.values(x.p.conf).some(no => no === g.fav_no || no === g.dog_no)));
     const gRow = g => { const on = s => famPicks.filter(x => Object.entries(x.p.conf).some(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))).map(x => { const c = Object.entries(x.p.conf).find(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))[0]; const won = g.favCovers != null && (s === 'fav') === g.favCovers; return `<span class="pk ${won ? 'won' : 'lost'}">${avatar(x.f)}${c}</span>`; }).join('');
       return `<div class="panel game"><div class="side"><div class="team ${g.favCovers ? 'cover' : ''}"><span class="nm">${esc(g.fav)}</span><span class="sp">−${fmtHalf(g.spread)}</span></div><div class="picks">${on('fav')}</div></div>
-        <div class="mid"><div class="score">${g.final ? `${g.final.fav}–${g.final.dog}` : '–'}</div><div class="st">${esc(g.league || '')} · ${g.favCovers == null ? 'no result' : g.favCovers ? 'fav covered' : 'dog covered'}</div></div>
+        <div class="mid"><div class="score">${g.final ? `${g.final.fav}–${g.final.dog}` : '–'}</div><div class="st">${esc(leagueName(g))} · ${g.favCovers == null ? 'no result' : g.favCovers ? 'favorite covered' : 'underdog covered'}</div></div>
         <div class="side r"><div class="team ${g.favCovers === false ? 'cover' : ''}"><span class="nm">${esc(g.dog)}</span><span class="sp">+${fmtHalf(g.spread)}</span></div><div class="picks">${on('dog')}</div></div></div>`; };
     box.innerHTML = `<div class="grid two"><div class="panel insight"><h3>Family that week</h3>${famLine}</div><div class="panel insight"><h3>League's top 4</h3><p>${top || '–'}</p>
         <p class="note">${W.games.length} games on the sheet; ${W.games.filter(g => g.favCovers === false).length} underdogs covered.</p></div></div>
@@ -1258,8 +1260,8 @@ function viewHistoryAll(ctx, yrs, yrChips) {
       <div class="panel insight"><h3>📈 Did the lessons hold up?</h3><p class="note" style="margin-top:0">A lesson that's real should point the same way every year. The number is a z-score: positive means the first group covered more, and beyond ±2 is more than luck. <b>Held up</b>: same direction every year. <b>Flipped</b>: clearly one way one year and the other way the next. <b>One year only</b>: real in one season, missing in the other. Several 2025 "lessons" (contrarian picks, home teams) ran the opposite way in 2024.</p></div>
     </div>
     ${title('The family, season by season')}
-    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Dogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>
-      <p class="note">Cover, 10s, dogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
+    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Underdogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>
+      <p class="note">Cover, 10s, underdogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
     ${title('League lessons, year over year', 'z-score per season and combined')}
     <div class="panel tbl-wrap"><table class="yoy"><thead><tr><th class="l">Pattern (combined)</th>${yrs.map(y => `<th>${short(y)}</th>`).join('')}<th>All</th><th class="l">Verdict</th></tr></thead><tbody>${yoy}</tbody></table></div>`;
   bindProfileLinks($('#main'));
