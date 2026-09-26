@@ -3,7 +3,7 @@
 // merging different people ("Dave Williams" != "Dean Williams").
 const NICK = { mike: 'michael', jeff: 'jeffrey', dave: 'david', pete: 'peter', chris: 'christopher', tom: 'thomas', bob: 'robert', bobby: 'robert',
   bill: 'william', will: 'william', joe: 'joseph', jim: 'james', jimmy: 'james', dan: 'daniel', danny: 'daniel', matt: 'matthew', steve: 'steven',
-  tony: 'anthony', rich: 'richard', rick: 'richard', ken: 'kenneth', ron: 'ronald', don: 'donald', greg: 'gregory', sam: 'samuel', ben: 'benjamin' };
+  tony: 'anthony', zach: 'zachary', zack: 'zachary', rich: 'richard', rick: 'richard', ken: 'kenneth', ron: 'ronald', don: 'donald', greg: 'gregory', sam: 'samuel', ben: 'benjamin' };
 
 function lev(a, b) {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
