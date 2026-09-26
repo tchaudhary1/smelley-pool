@@ -18,7 +18,7 @@ function pickRows(archive) {
     for (const [name, p] of Object.entries(w.picks)) for (const [c, no] of Object.entries(p.conf)) {
       const h = byNo.get(no); if (!h || h[0].favCovers == null) continue;
       const [g, side] = h;
-      rows.push({ name, week: w.week, conf: +c, side, spread: g.spread, league: g.league || 'CFB', home: g.home === side, homeKnown: g.home != null,
+      rows.push({ name, week: w.week, conf: +c, side, spread: g.spread, league: g.league || 'CFB', day: g.day || null, home: g.home === side, homeKnown: g.home != null,
         covered: (side === 'fav') === g.favCovers, pop: sideCount[no] / gameCount[g.fav_no], nGame: gameCount[g.fav_no] });
     }
   }
@@ -315,6 +315,40 @@ export function teamLeaderboard(ctx, name, extra = [], { min = 4 } = {}) {
   const worst = [...qual].sort((a, b) => rate(a[1]) - rate(b[1]) || b[1].d - a[1].d).slice(0, 3);
   const vs = [...agT].filter(([, s]) => s.d >= min).sort((a, b) => rate(b[1]) - rate(a[1]) || b[1].d - a[1].d).slice(0, 3);
   return `TEAM RECORDS for ${name} (${total} picks over ${[...seasons].join(', ')}; "X 5/6" = backed X 6 times, covered 5): most backed: ${most.map(fmt).join(', ')}. Best to back (${min}+ picks): ${best.map(fmt).join(', ') || 'none with enough picks'}. Worst to back: ${worst.map(fmt).join(', ') || 'n/a'}. Best when picking AGAINST (${min}+): ${vs.map(fmt).join(', ') || 'n/a'}. These are small samples: fun trivia, not a pattern (past results don't carry over in this pool).`;
+}
+
+// A person's cover record sliced every way the odds sheets allow, each next to the league's rate for the
+// same kind of pick (every season pooled): favorite/underdog by spread size, home/road, NFL/college,
+// confidence, day of the week, with/against the crowd, and favorite/underdog by season.
+// With a question, only the lines it's about are kept (plus the overall line), so figures don't get mixed up.
+const SPLIT_TOPICS = [[/underdog|\bdogs?\b/i, /underdog/i], [/favou?rite|\bfavs?\b/i, /favorite/i], [/\bhome\b|\broad\b|\baway\b/i, /home|road/i],
+  [/\bnfl\b|college/i, /nfl|college/i], [/confidence|\b10s\b|\btens\b/i, /confidence|10s/i], [/thursday|friday|saturday|sunday|monday/i, /day games/i],
+  [/crowd|contrarian/i, /crowd/i], [/spread|close|big|medium/i, /close|medium|big/i]];
+export function personSplits(ctx, name, question = '') {
+  const C = ctx?.career; if (!C) return '';
+  const key = findIn(Object.keys(C.per), name); if (!key) return `PICK SPLITS: no graded picks on file for ${name}.`;
+  const mine = C.rows.filter(r => r.name === key), all = C.rows;
+  const stat = (rows, f) => { const s = rows.filter(f); return { n: s.length, c: s.filter(r => r.covered).length }; };
+  const pc = x => `${Math.round(x * 100)}%`;
+  const line = (label, f) => { const m = stat(mine, f), l = stat(all, f); return m.n ? `${label}: ${m.n} picks, covered ${m.c} (${pc(m.c / m.n)}; league ${l.n ? pc(l.c / l.n) : 'n/a'})` : `${label}: none`; };
+  const size = s => (s <= 3.5 ? 'close (3½ or less)' : s < 10 ? 'medium (4–9½)' : 'big (10+)');
+  const L = [
+    line('All picks', () => true),
+    line('Favorites', r => r.side === 'fav'), line('Underdogs', r => r.side === 'dog'),
+    ...['close (3½ or less)', 'medium (4–9½)', 'big (10+)'].flatMap(sz => [line(`Favorites, ${sz}`, r => r.side === 'fav' && size(r.spread) === sz), line(`Underdogs, ${sz}`, r => r.side === 'dog' && size(r.spread) === sz)]),
+    line('Home teams', r => r.homeKnown && r.home), line('Road teams', r => r.homeKnown && !r.home),
+    line('Home underdogs', r => r.homeKnown && r.home && r.side === 'dog'), line('Road favorites', r => r.homeKnown && !r.home && r.side === 'fav'),
+    line('NFL', r => r.league === 'NFL'), line('College', r => r.league !== 'NFL'),
+    line('NFL underdogs', r => r.league === 'NFL' && r.side === 'dog'), line('College underdogs', r => r.league !== 'NFL' && r.side === 'dog'),
+    line('Confidence 8–10', r => r.conf >= 8), line('Confidence 4–7', r => r.conf >= 4 && r.conf <= 7), line('Confidence 1–3', r => r.conf <= 3), line('Their 10s', r => r.conf === 10),
+    ...['Thursday', 'Friday', 'Saturday', 'Sunday', 'Monday'].map(d => line(`${d} games`, r => r.day === d)),
+    line('Against the crowd (<35% of the league on that side)', r => r.nGame >= 5 && r.pop < 0.35), line('With the crowd (65%+)', r => r.nGame >= 5 && r.pop >= 0.65),
+    ...[...new Set(mine.map(r => r.season))].sort().flatMap(y => [line(`${y} favorites`, r => r.season === y && r.side === 'fav'), line(`${y} underdogs`, r => r.season === y && r.side === 'dog')]),
+  ].filter(s => !s.endsWith(': none'));
+  const topics = SPLIT_TOPICS.filter(([q]) => q.test(question)).map(([, l]) => l);
+  const shown = topics.length ? L.filter((s, i) => i === 0 || topics.some(t => t.test(s.split(':')[0]))) : L;
+  L.splice(0, L.length, ...shown);
+  return `PICK SPLITS for ${name} (${C.label}, every graded pick; the odds sheets give each pick's spread, favorite/underdog, home team, league and day):\n  ${L.join('\n  ')}\n  (A few percentage points is noise at these sample sizes; past results don't predict future ones here.)`;
 }
 
 // Did each league-wide pattern hold from season to season? Uses only years where the pattern was

@@ -23,7 +23,7 @@ import { fetchLive, gameState, gradeEntry, indexGames, fmtHalf } from '../js/liv
 import { buildModel } from '../js/model.js';
 import { simulateWeek, describeWhatIf, fieldModel } from '../js/sim.js';
 import { buildBrief } from '../js/brief.js';
-import { buildContext, scoutingReport, reportText, historySummary, teamsInText, teamPickText, teamLeaderboard } from '../js/profile.js';
+import { buildContext, scoutingReport, reportText, historySummary, teamsInText, teamPickText, teamLeaderboard, personSplits } from '../js/profile.js';
 import { samePerson } from '../js/names.js';
 import { leagueStorylines } from '../js/storylines.js';
 import { fetchGameNews, newsFacts } from '../js/news.js';
@@ -618,10 +618,14 @@ async function tick() {
     // "What team does Jamie cover with the most?": no team named, so give each person's team-by-team record.
     const boardFacts = hctx && /\bteams?\b/i.test(question) && !teams.length ? who.slice(0, 3).map(n => teamLeaderboard(hctx, n, thisWeek)).join('\n') : '';
     if (boardFacts) log('team leaderboards for:', who.slice(0, 3).join(', '));
+    // "How often do I cover when picking the underdog?": the person's record by kind of pick, from the odds sheets.
+    const SPLITS = /(underdog|\bdogs?\b|favou?rites?|\bfavs?\b|\bhome\b|\broad\b|\baway\b|\bnfl\b|college|spread|confidence|\b10s\b|\btens\b|thursday|friday|saturday|sunday|monday|crowd|contrarian|how often|cover rate|when (i|she|he|they) pick)/i;
+    const splitFacts = hctx && SPLITS.test(question) ? who.slice(0, 3).map(n => personSplits(hctx, n, question)).join('\n') : '';
+    if (splitFacts) log('pick splits for:', who.slice(0, 3).join(', '));
     if (people.length) log('scouting reports for:', people.join(', '));
     const brief = (C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history, storylines, news: newsBrief }) : 'No picks loaded yet.') + (reports ? '\n\nSCOUTING REPORTS FOR PEOPLE IN THE QUESTION:\n' + reports : '')
       + (teamFacts ? "\n\nTEAM PICK HISTORY (every pick each person made on that team's games; FOR = picked that team, AGAINST = picked its opponent):\n" + teamFacts : '')
-      + (boardFacts ? '\n\n' + boardFacts : '');
+      + (boardFacts ? '\n\n' + boardFacts : '') + (splitFacts ? '\n\n' + splitFacts : '');
     const scenario = C ? await parseScenario(P, live, question) : [];
     const scen = scenario.length ? scenarioFacts(P, live, C, scenario) : '';
     if (scenario.length) log('scenario:', scenario.map(s => `${s.fav_no}:${s.fav_covers ? 'fav' : 'dog'}`).join(','));
