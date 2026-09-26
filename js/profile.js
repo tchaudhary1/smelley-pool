@@ -113,7 +113,7 @@ export function scoutingReport(ctx, name) {
   const pickYears = out.seasons.filter(s => s.metrics).map(s => s.season).sort();
   if (cm) out.quirks = quirks(cm, C);
   out.career = cm ? { metrics: cm, label: yrLabel(pickYears), years: pickYears, finishes: out.seasons.filter(s => s.entry).map(s => ({ season: s.season, rank: s.entry.seasonRank ?? s.entry.guruRank, of: s.entries, partial: s.partial?.throughWeek ?? null })) } : null;
-  out.caveat = cm ? `Tendencies are based on ${cm.n.toLocaleString()} graded picks over ${cm.weeksPicked} weeks (${pickYears.join(' and ')}): patterns, not guarantees. A difference of a few percentage points is noise at this sample size.` : 'No past pick data for this player yet.';
+  out.caveat = cm ? `Tendencies are based on ${cm.n.toLocaleString()} graded picks over ${cm.weeksPicked} weeks (${pickYears.length > 1 ? pickYears.slice(0, -1).join(', ') + ' and ' + pickYears.at(-1) : pickYears[0]}): patterns, not guarantees. A difference of a few percentage points is noise at this sample size.` : 'No past pick data for this player yet.';
   out.neighborhood = neighborhood(ctx, name);
   out.lessons = lessons(ctx, name, out.neighborhood);
   return out;

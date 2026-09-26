@@ -648,8 +648,8 @@ function familyVsLeagueHistory(T) {
     <div class="tbl-wrap"><table><thead><tr><th class="l">Week</th><th>Family</th><th>League</th><th>Diff</th><th class="l">Family best</th></tr></thead><tbody>${weeks}</tbody></table></div></div>`;
 }
 // ---------- pick style: this week vs each person's usual ----------
-// Style is what carries over in this pool (underdog share 2024 vs 2025 correlates 0.87, NFL 0.89,
-// home 0.81), while results don't (cover rate 0.04). So "this week vs their usual" means something
+// Style is what carries over in this pool (season to season 2023-25: underdog share correlates 0.85-0.87,
+// NFL 0.80-0.89, home 0.81-0.82), while results don't (cover rate 0.04-0.09). So "this week vs their usual" means something
 // even from 10 picks, and a big departure is a real storyline. Home counts only games with a home team.
 const STYLE = [
   { k: 'dog', label: 'Underdogs', phrase: 'underdogs', hit: r => r.side === 'dog' },
@@ -1331,7 +1331,7 @@ function viewHistoryAll(ctx, yrs, yrChips) {
     ${yrChips}
     <div class="grid two">
       <div class="panel insight"><h3>🏆 Champions</h3>${champs}</div>
-      <div class="panel insight"><h3>📈 Did the lessons hold up?</h3><p class="note" style="margin-top:0">A lesson that's real should point the same way every year. The number is a z-score: positive means the first group covered more, and beyond ±2 is more than luck. <b>Held up</b>: same direction every year. <b>Flipped</b>: clearly one way one year and the other way the next. <b>One year only</b>: real in one season, missing in the other. Several 2025 "lessons" (contrarian picks, home teams) ran the opposite way in 2024.</p></div>
+      <div class="panel insight"><h3>📈 Did the lessons hold up?</h3><p class="note" style="margin-top:0">A lesson that's real should point the same way every year. The number is a z-score: positive means the first group covered more, and beyond ±2 is more than luck. <b>Held up</b>: same direction every year. <b>Flipped</b>: clearly one way one year and the other way the next. <b>One year only</b>: real in one season, missing in the other. Going against the crowd and taking home teams both worked in 2023 and 2025, then ran the opposite way in 2024: nothing has held up every season yet.</p></div>
     </div>
     ${title('The family, season by season')}
     <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Underdogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>

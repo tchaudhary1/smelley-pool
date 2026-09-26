@@ -24,8 +24,8 @@ export function fieldModel(league, uptoWeek) {
   const L = all.length ? all.reduce((a, b) => a + b, 0) / all.length : 25;
   const S = all.length > 2 ? Math.sqrt(all.reduce((a, b) => a + (b - L) ** 2, 0) / (all.length - 1)) : 9;
   // Everyone is projected at the league average. Scores don't carry over in this pool: a player's
-  // 2024 weekly average vs their 2025 average correlates 0.04, and 2025's first half vs its second
-  // half -0.05, so a hot start says nothing about this week.
+  // weekly average from one season to the next correlates 0.02-0.04 (2023-25), and a season's first
+  // half vs its second half -0.12 to 0.04, so a hot start says nothing about this week.
   const proj = new Map(members.map(m => {
     return [m.name, { mean: L, sd: S,
       season: m.weeks.slice(0, uptoWeek - 1).reduce((a, v) => a + (v || 0), 0) }];
