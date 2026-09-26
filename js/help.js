@@ -20,7 +20,7 @@ export const HELP = [
     { id: 'getting-around', title: 'Getting around (tabs, arrows, cards)', keys: 'navigation tabs arrows scroll swipe menu cards tap mobile phone', body: `
       <ul><li>The tabs run across the top: <b>Game Day, Standings, Head to Head, Pick Lab, Smack Talk, History, Help</b> (plus <b>Upload</b> for Tarun). On a phone they don't all fit: swipe the tab bar, or tap the <b>‹ ›</b> arrows that appear at its edges when more tabs are hidden that way.</li>
       <li>Almost everything opens a <b>card</b> with more detail: family cards, games, standings rows, head-to-head squares, what-ifs, charts, even the crest. On a phone, cards slide up from the bottom. Close with ×, by tapping outside, or with the Esc key.</li>
-      <li>Everything refreshes on its own: about every minute while games are live, every few minutes otherwise. Pull down (phone) or reload to refresh right away.</li></ul>` },
+      <li>Everything refreshes on its own: live scores about every minute while games are live (every few minutes otherwise), newly uploaded picks and standings within about 3 minutes, and the chat instantly. Pull down (phone) or reload to refresh right away.</li></ul>` },
   ]},
   { group: 'Sign-in trouble', topics: [
     { id: 'theme', title: 'Light or dark mode', keys: 'dark mode light mode theme night colors brightness sun moon', body: `

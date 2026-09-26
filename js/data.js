@@ -101,6 +101,16 @@ export async function loadRoster() {
 }
 
 // ---------- datasets ----------
+// When each dataset last changed ({ key: updated_at }), so open pages can pick up new uploads.
+// Local preview: null (its files are reloaded on refresh).
+export async function datasetStamps(keys) {
+  if (LOCAL) return null;
+  const c = await client();
+  const { data, error } = await c.from('datasets').select('key, updated_at').in('key', keys);
+  if (error) throw error;
+  return Object.fromEntries((data || []).map(d => [d.key, d.updated_at]));
+}
+
 export async function loadDataset(key) {
   if (LOCAL) {
     const r = await fetch(`${DATA_DIR}${key}.json`, { cache: 'no-store' });

@@ -157,7 +157,8 @@ async function start() {
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
   if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); refreshLive().then(() => { if (LIVE_TABS.has(S.tab) && !$('.modal')) render(); }); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); syncData(); refreshLive().then(() => { if (LIVE_TABS.has(S.tab) && !$('.modal')) render(); }); } });
+  syncData(); setInterval(() => { if (!document.hidden) syncData(); }, 3 * 60e3);
   window.addEventListener('online', () => syncChat());
   setInterval(() => { if (!document.hidden) syncChat(); }, 20e3);
   chatSig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
@@ -208,6 +209,31 @@ async function refreshLive() {
   $('#liveDot').classList.toggle('on', n > 0);
   $('#liveTxt').textContent = n ? `${n} live` : `updated ${S.lastLive.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
+// Uploaded data (pick sheets, standings totals, settings) changes a few times a week. Open pages
+// check every 3 minutes (and on return to the page) and reload whatever changed, so nobody has to
+// refresh to see newly uploaded picks. A new current week reloads the page.
+let dataStamps = null;
+async function syncData() {
+  const wkKey = `week${S.week.week}`, keys = ['settings', 'league', wkKey];
+  let st; try { st = await db.datasetStamps(keys); } catch { return; }
+  if (!st) return;
+  if (!dataStamps) { dataStamps = st; return; }
+  const changed = keys.filter(k => st[k] && st[k] !== dataStamps[k]); dataStamps = st;
+  if (!changed.length) return;
+  try {
+    if (changed.includes('settings')) {
+      const s = await db.loadDataset('settings');
+      if (s && s.currentWeek != null && s.currentWeek !== S.week.week) { location.reload(); return; }
+      if (s) S.settings = s;
+    }
+    if (changed.includes('league')) { const l = await db.loadDataset('league'); if (l) S.league = l; }
+    if (changed.includes(wkKey)) { const w = await db.loadDataset(wkKey); if (w) S.week = w; }
+  } catch { return; }
+  if (S.hist) S.ctx = buildContext({ archives: S.hist, league: S.league });   // scouting "neighborhood" uses this season's standings
+  recompute();
+  if ($('.modal')) refreshOpenModal(); else if (LIVE_TABS.has(S.tab)) render();
+}
+
 async function refreshSocial() {
   // A failed fetch (weak signal) keeps what's on screen rather than emptying the chat.
   const got = await Promise.all([db.listMessages(), db.listReactions()]).catch(() => null);
