@@ -9,7 +9,7 @@ export const SUPABASE_ANON_KEY = 'sb_publishable_4onxoj68g8spadHL7jkGjA_5sxM4hnY
 export const CURRENT_WEEK = 4;
 export const SEASON = 2026;
 // Past seasons rebuilt by tools/build-history.mjs and stored as datasets history<year>.
-export const HISTORY_SEASONS = [2024, 2025];
+export const HISTORY_SEASONS = [2023, 2024, 2025];
 
 // The family group. Full pool-sheet names are not kept in this public repo: they come from
 // the database (profiles.pool_name) after login, or local-data/roster.json in preview.

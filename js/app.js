@@ -555,7 +555,7 @@ function viewH2H() {
   };
   const who = (f, label = f.short, extra = '') => `<button type="button" class="rh-in plink-btn" data-member="${f.key}" title="Open ${esc(label)}'s card">${avatar(f)}<span>${esc(label)}${extra}</span></button>`;
   const chips = [['now', 'This season'], ...yrs.map(y => [y, y]), ...(yrs.length ? [['all', 'All-time']] : [])]
-    .map(([k, l]) => `<button class="chip ${k === yr ? 'on' : ''}" data-h2hyr="${k}">${l}</button>`).join('');
+    .map(([k, l]) => `<button class="chip ${k === yr ? 'on' : ''}" data-h2hyr="${k}"${partialOf(S.ctx, k) ? ` title="Incomplete season: through week ${partialOf(S.ctx, k).throughWeek}"` : ''}>${l}${partialOf(S.ctx, k) ? '*' : ''}</button>`).join('');
   const sub = yr === 'all' ? `Every season on file plus this one (${[...yrs].reverse().join(', ')} and now). Tap a record for the rivalry card`
     : yr === 'now' ? 'Weekly score records this season. Read across: row vs column. Tap a record for the rivalry card, or a name for that person'
     : `Weekly score records in ${yr}, rebuilt from the commissioner's files. Tap a record for the rivalry card`;
@@ -1093,7 +1093,7 @@ function openH2H(aKey, bKey) {
     ${ga && gb ? `<h4>What decides it this week</h4>${decRows || (deciders.length ? '<p class="muted" style="font-size:13px">Every game that splits them is over.</p>' : '<p class="muted" style="font-size:13px">Identical cards this week: whatever happens, they score the same.</p>')}${doneLine}
       <p class="note">Only games where their picks differ can change who wins the week. The swing is how many points it moves between them.</p>`
       : `<p class="note">This week's comparison appears once both pick sheets are loaded.</p>`}
-    ${at?.per.length ? `<h4>All-time</h4>${at.per.map(x => `<div class="stat-row"><span>${x.y === 'now' ? 'This season' : x.y}</span><span class="num">${recTxt(x.r)}</span></div>`).join('')}
+    ${at?.per.length ? `<h4>All-time</h4>${at.per.map(x => `<div class="stat-row"><span>${x.y === 'now' ? 'This season' : x.y}${partialOf(S.ctx, x.y) ? ` <span class="muted">(through week ${partialOf(S.ctx, x.y).throughWeek})</span>` : ''}</span><span class="num">${recTxt(x.r)}</span></div>`).join('')}
       ${bigA || bigB ? `<p class="note">Biggest wins: ${bigA ? `${nA} ${bigA.v}–${bigA.u} (${bigA.lab})` : ''}${bigA && bigB ? ' · ' : ''}${bigB ? `${nB} ${bigB.v}–${bigB.u} (${bigB.lab})` : ''}.</p>` : ''}` : ''}
     ${styleRows ? `<h4>How they pick <span class="muted" style="text-transform:none;letter-spacing:0">(${nA} vs ${nB}, past seasons)</span></h4>${styleRows}
       <p class="note">Pick style carries over from year to year in this pool; past results don't, so these are habits, not a forecast.</p>` : ''}
@@ -1189,7 +1189,7 @@ async function openProfile(name) {
   const lgAvgW = cs ? ctx.seasons[cs.season].archive.entries[0].weeks.map((_, w) => { const v = ctx.seasons[cs.season].archive.entries.map(e => e.weeks[w]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }) : [];
   const withEntry = rep.seasons.filter(s => s.entry);
   const seasonRows = withEntry.length > 1 ? `<h4>Season by season</h4><div class="tbl-wrap"><table><thead><tr><th class="l">Season</th><th>Finish</th><th>Wk avg</th><th>Best</th><th>Top-4s</th><th>Bowls</th><th>Cover</th><th>10s</th></tr></thead><tbody>${withEntry.map(s =>
-    `<tr><td class="l">${s.season}</td><td class="num">#${s.entry.seasonRank ?? s.entry.guruRank} <span class="muted">of ${s.entries}</span></td><td class="num">${s.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s.weekly.best ?? '–'}</td><td class="num">${s.top4.length}</td><td class="num">${s.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s.metrics?.cover)}</td><td class="num">${pctS(s.metrics?.tens.cover)}</td></tr>`).join('')}</tbody></table></div>` : '';
+    `<tr><td class="l">${s.season}${finishMark(ctx, s.season)}</td><td class="num">#${s.entry.seasonRank ?? s.entry.guruRank} <span class="muted">of ${s.entries}</span></td><td class="num">${s.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s.weekly.best ?? '–'}</td><td class="num">${s.top4.length}</td><td class="num">${s.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s.metrics?.cover)}</td><td class="num">${pctS(s.metrics?.tens.cover)}</td></tr>`).join('')}</tbody></table>${withEntry.some(s => partialOf(ctx, s.season)) ? `<p class="note">* Incomplete season: rank through week ${partialOf(ctx, withEntry.find(s => partialOf(ctx, s.season)).season).throughWeek}, not a final finish.</p>` : ''}</div>` : '';
   const thisWeek = S.week.picks?.[name] || (f && S.week.picks?.[f.pool]);
   const lessonsLg = lessonVerdicts(ctx).filter(l => l.verdict === 'held').slice(0, 3);   // only patterns that held every season
   const html = `${modalHead(f ? `Scouting report · family` : 'Scouting report', `${f ? avatar(f) + ' ' : ''}${esc(name)}`)}<div class="mb">
@@ -1223,6 +1223,26 @@ async function openProfile(name) {
 }
 
 // ---- History tab
+// Seasons rebuilt from incomplete files carry archive.partial (tools/build-history.mjs): say so plainly.
+const partialOf = (ctx, y) => ctx?.seasons?.[y]?.archive?.partial || null;
+const finishMark = (ctx, y) => (partialOf(ctx, y) ? '*' : '');
+function partialBanner(A, yr) {
+  const P = A.partial; if (!P) return '';
+  const weeksTxt = a => (a.length > 1 ? `weeks ${a.slice(0, -1).join(', ')} and ${a.at(-1)}` : `week ${a[0]}`);
+  const noSheet = P.officialWeeks.filter(w => !P.rebuiltWeeks.includes(w) && !A.weeks.find(x => x.week === w)?.picks);
+  const checks = P.stretchChecks, pctOk = checks && checks.ok + checks.differ ? Math.round(100 * checks.ok / (checks.ok + checks.differ)) : null;
+  const games = A.bowls ? Object.keys(A.bowls.winners).length : 0, recorded = games - (P.bowlsUnofficial || 0) - (P.bowlsUnknown || 0);
+  return `<div class="panel partial-note"><h3>⚠️ ${yr} is incomplete</h3><ul class="sr-list">
+    <li><b>Standings run through week ${P.throughWeek}.</b> ${P.missingWeeks.length ? `${weeksTxt(P.missingWeeks)[0].toUpperCase() + weeksTxt(P.missingWeeks).slice(1)} ${P.missingWeeks.length > 1 ? 'are' : 'is'} missing, so the final ${yr} result isn't known.` : ''}</li>
+    <li><b>Official weekly scores</b> for ${weeksTxt(P.officialWeeks)}${noSheet.length ? ` (${weeksTxt(noSheet)}: scores only, no pick sheet)` : ''}.</li>
+    <li><b>${weeksTxt(P.rebuiltWeeks)[0].toUpperCase() + weeksTxt(P.rebuiltWeeks).slice(1)} are rebuilt</b> from the pick sheets and ESPN final scores, then checked against the official season totals${pctOk != null ? ` (${pctOk}% of those checks match exactly)` : ''}.</li>
+    ${A.bowls ? `<li><b>Bowl pool:</b> ${recorded} of ${games} results recorded by the commissioner, ${P.bowlsUnofficial} filled in from ESPN final scores (unofficial)${P.bowlsUnknown ? `, ${P.bowlsUnknown} unknown` : ''}. There's no official bowl total to check against.</li>` : ''}
+    <li>No weekly-winners list for ${yr}: each week's top 4 is worked out from the scores.</li></ul>
+    <p class="note">If the missing files turn up, ${yr} gets rebuilt and these notes go away.</p></div>`;
+}
+// Top of the standings when there's no champions list (incomplete seasons).
+const leadersOf = A => [...A.entries].sort((a, b) => (b.total ?? 0) - (a.total ?? 0)).slice(0, 4);
+
 async function viewHistory() {
   $('#main').innerHTML = `${title('History', 'Past seasons, rebuilt pick by pick from the commissioner’s files')}<div class="empty">Loading the archive…</div>`;
   const ctx = await ensureHistory();
@@ -1236,8 +1256,8 @@ async function viewHistory() {
   const fam = FAMILY.filter(f => !f.shadow).map(f => ({ f, e: A.entries.find(e => f.pool && (e.name === f.pool || samePerson(e.name, f.pool))), rep: f.pool ? scoutingReport(ctx, f.pool) : null })).filter(x => x.e);
   const aw = A.winners?.awards || {};
   const champ = (k, label) => aw[k] ? `<div class="champ"><span class="muted">${label}</span><b>${nameLink(aw[k][0])}</b><small>${aw[k].slice(1, 4).map(x => esc(x)).join(' · ')}</small></div>` : '';
-  const famRows = fam.sort((a, b) => (a.e.seasonRank ?? 999) - (b.e.seasonRank ?? 999)).map(({ f, e, rep }) => { const s = rep.seasons.find(x => x.season === +yr);
-    return `<tr class="row" data-profile="${esc(e.name)}"><td class="l">${avatar(f)} ${esc(f.short)}</td><td class="num">#${e.seasonRank ?? '–'}</td><td class="num">${e.total}</td><td class="num">${s?.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s?.weekly.best ?? '–'}</td><td class="num">${s?.top4.length || 0}</td><td class="num">${s?.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s?.metrics?.cover)}</td></tr>`; }).join('');
+  const famRows = fam.sort((a, b) => (a.e.seasonRank ?? a.e.guruRank ?? 999) - (b.e.seasonRank ?? b.e.guruRank ?? 999)).map(({ f, e, rep }) => { const s = rep.seasons.find(x => x.season === +yr);
+    return `<tr class="row" data-profile="${esc(e.name)}"><td class="l">${avatar(f)} ${esc(f.short)}</td><td class="num">#${e.seasonRank ?? e.guruRank ?? '–'}${A.partial ? '*' : ''}</td><td class="num">${e.total}</td><td class="num">${s?.weekly.mean?.toFixed(1) ?? '–'}</td><td class="num">${s?.weekly.best ?? '–'}</td><td class="num">${s?.top4.length || 0}</td><td class="num">${s?.bowls ? '#' + s.bowls.rank : '–'}</td><td class="num">${pctS(s?.metrics?.cover)}</td></tr>`; }).join('');
   const weeksN = 19; const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
   const famNames = new Set(fam.map(x => x.e.name));
   const famAvg = Array.from({ length: weeksN }, (_, w) => avg(fam.map(x => x.e.weeks[w]).filter(v => v != null)));
@@ -1246,11 +1266,13 @@ async function viewHistory() {
   const bb = Array.from({ length: weeksN }, (_, w) => Math.max(...fam.map(x => x.e.weeks[w] ?? 0))).reduce((a, b) => a + b, 0);
   const bbRank = 1 + A.entries.filter(e => (e.total ?? 0) > bb).length;
   const lessons = leagueLessons(ctx, yr);
-  const weekOpts = A.weeks.map(w => `<option value="${w.week}">Week ${w.week}${w.picks ? '' : ' (no pick sheet)'}</option>`).join('');
+  const noData = w => A.entries.every(e => e.weeks[w - 1] == null);
+  const weekOpts = A.weeks.map(w => `<option value="${w.week}">Week ${w.week}${noData(w.week) ? ' (no data)' : w.picks ? (A.partial && !A.partial.officialWeeks.includes(w.week) ? ' (rebuilt)' : '') : ' (no pick sheet)'}</option>`).join('');
   $('#main').innerHTML = `${title(`${yr} season`, `${n} entries · every pick graded against ESPN final scores · tap any name for a scouting report`)}
     ${yrChips}
+    ${partialBanner(A, yr)}
     <div class="grid two">
-      <div class="panel insight"><h3>🏆 Champions</h3><div class="champs">${champ('Guru Season', 'Season')}${champ('Guru Weeks 1-19', 'Weeks 1–19')}${champ('Bowls', 'Bowl pool')}</div></div>
+      ${A.partial && !A.winners ? `<div class="panel insight"><h3>🏆 Leaders after week ${A.partial.throughWeek}</h3><div class="champs">${leadersOf(A).map((e, i) => `<div class="champ"><span class="muted">#${i + 1}</span><b>${nameLink(e.name)}</b><small>${e.total} pts${i ? ` · ${leadersOf(A)[0].total - e.total} back` : ''}</small></div>`).join('')}</div><p class="note">Final result unknown: week ${A.partial.missingWeeks.join(', ')} ${A.partial.missingWeeks.length > 1 ? 'are' : 'is'} missing.</p></div>` : `<div class="panel insight"><h3>🏆 Champions</h3><div class="champs">${champ('Guru Season', 'Season')}${champ('Guru Weeks 1-19', 'Weeks 1–19')}${champ('Bowls', 'Bowl pool')}</div></div>`}
       <div class="panel insight"><h3>🏟️ The family vs the league</h3>
         <div class="kv"><div><b>${beat} of ${famAvg.filter(v => v != null).length}</b><span>Weeks the family beat the league average</span></div>
           <div><b>${bb} <span class="muted" style="font-size:13px">#${bbRank}</span></b><span>"Team Smelley" best-ball would have ranked</span></div></div>
@@ -1258,7 +1280,7 @@ async function viewHistory() {
         <div class="legend"><span><i style="background:var(--gold)"></i>Family average</span><span><i style="background:var(--ink-3)"></i>Rest of the league</span></div></div>
     </div>
     ${title('The family in ' + yr)}
-    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th><th>Finish</th><th>Wk pts</th><th>Avg</th><th>Best</th><th>Top-4s</th><th>Bowls</th><th>Cover</th></tr></thead><tbody>${famRows}</tbody></table></div>
+    <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th><th>Finish</th><th>Wk pts</th><th>Avg</th><th>Best</th><th>Top-4s</th><th>Bowls</th><th>Cover</th></tr></thead><tbody>${famRows}</tbody></table>${A.partial ? `<p class="note">* Rank through week ${A.partial.throughWeek}, not a final finish.${A.bowls?.unofficialWinners?.length ? ' Bowl ranks include unofficial results.' : ''}</p>` : ''}</div>
     ${title('What worked league-wide', `${yr}, all ${A.weeks.reduce((s, w) => s + (w.picks ? Object.keys(w.picks).length : 0), 0).toLocaleString()} cards · ★ = a real pattern, not noise`)}
     <div class="panel insight">${lessons.map(l => `<div class="stat-row"><span>${l.significant ? '★ ' : ''}${esc(l.text)}</span></div>`).join('')}</div>
     ${title('Week by week')}
@@ -1268,7 +1290,10 @@ async function viewHistory() {
     const scores = A.entries.map(e => ({ name: e.name, s: e.weeks[w - 1] })).filter(x => x.s != null).sort((a, b) => b.s - a.s);
     const rankOf = s => 1 + scores.filter(x => x.s > s).length;
     const famLine = fam.map(({ f, e }) => { const s = e.weeks[w - 1]; return `<div class="stat-row"><span>${avatar(f)} ${nameLink(e.name)}</span><span class="num">${s ?? '–'} <span class="muted">${s != null ? '#' + rankOf(s) + ' of ' + scores.length : ''}</span></span></div>`; }).join('');
-    const top = (A.winners?.weeks?.[w] || []).slice(0, 4).map((x, i) => `${['🥇', '🥈', '🥉', '4th'][i]} ${nameLink(x)}`).join(' &nbsp; ');
+    // No winners list (incomplete seasons): the top 4 comes from the scores.
+    const topNames = A.winners?.weeks?.[w] || scores.slice(0, 4).map(x => x.name);
+    const top = topNames.slice(0, 4).map((x, i) => `${['🥇', '🥈', '🥉', '4th'][i]} ${nameLink(x)}`).join(' &nbsp; ');
+    const srcNote = !A.partial ? '' : noData(w) ? 'No scores or pick sheet on file for this week.' : A.partial.officialWeeks.includes(w) ? 'Official scores this week.' : 'Scores this week are rebuilt from the pick sheet (no official weekly score on file).';
     const famPicks = W.picks ? fam.map(({ f, e }) => ({ f, p: W.picks[e.name] })).filter(x => x.p) : [];
     const games = W.games.filter(g => famPicks.some(x => Object.values(x.p.conf).some(no => no === g.fav_no || no === g.dog_no)));
     const gRow = g => { const on = s => famPicks.filter(x => Object.entries(x.p.conf).some(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))).map(x => { const c = Object.entries(x.p.conf).find(([, no]) => no === (s === 'fav' ? g.fav_no : g.dog_no))[0]; const won = g.favCovers != null && (s === 'fav') === g.favCovers; return `<span class="pk ${won ? 'won' : 'lost'}">${avatar(x.f)}${c}</span>`; }).join('');
@@ -1276,8 +1301,8 @@ async function viewHistory() {
         <div class="mid"><div class="score">${g.final ? `${g.final.fav}–${g.final.dog}` : '–'}</div><div class="st">${esc(leagueName(g))} · ${g.favCovers == null ? 'no result' : g.favCovers ? 'favorite covered' : 'underdog covered'}</div></div>
         <div class="side r"><div class="team ${g.favCovers === false ? 'cover' : ''}"><span class="nm">${esc(g.dog)}</span><span class="sp">+${fmtHalf(g.spread)}</span></div><div class="picks">${on('dog')}</div></div></div>`; };
     box.innerHTML = `<div class="grid two"><div class="panel insight"><h3>Family that week</h3>${famLine}</div><div class="panel insight"><h3>League's top 4</h3><p>${top || '–'}</p>
-        <p class="note">${W.games.length} games on the sheet; ${W.games.filter(g => g.favCovers === false).length} underdogs covered.</p></div></div>
-      ${W.picks ? `<h4 class="lg-h">Games with family picks</h4>${games.map(gRow).join('')}` : '<div class="panel empty">No pick sheet for this week, only scores.</div>'}`;
+        <p class="note">${W.games.length} games on the sheet; ${W.games.filter(g => g.favCovers === false).length} underdogs covered.${A.winners || noData(w) ? '' : ' Top 4 worked out from the scores.'}${srcNote ? ' ' + srcNote : ''}</p></div></div>
+      ${W.picks ? `<h4 class="lg-h">Games with family picks</h4>${games.map(gRow).join('')}` : `<div class="panel empty">${noData(w) ? 'No pick sheet or scores on file for this week.' : 'No pick sheet for this week, only scores.'}</div>`}`;
     bindProfileLinks(box);
   };
   $('#hWeek').onchange = e => drawWeek(+e.target.value); drawWeek(A.weeks[0].week);
@@ -1290,11 +1315,12 @@ function viewHistoryAll(ctx, yrs, yrChips) {
   const C = ctx.career; const short = y => `'${String(y).slice(2)}`;
   const fam = FAMILY.filter(f => !f.shadow && f.pool).map(f => ({ f, rep: scoutingReport(ctx, f.pool) })).filter(x => x.rep.career || x.rep.seasons.length);
   const finOf = (rep, y) => rep.seasons.find(s => s.season === +y)?.entry;
-  const avgFin = rep => { const v = yrs.map(y => finOf(rep, y)?.seasonRank).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 999; };
+  const avgFin = rep => { const v = yrs.map(y => { const e = finOf(rep, y); return e?.seasonRank ?? e?.guruRank; }).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 999; };
   const famRows = fam.sort((a, b) => avgFin(a.rep) - avgFin(b.rep)).map(({ f, rep }) => { const m = rep.career?.metrics;
-    return `<tr class="row" data-profile="${esc(f.pool)}"><td class="l">${avatar(f)} ${esc(f.short)}</td>${yrs.map(y => { const e = finOf(rep, y); return `<td class="num">${e ? '#' + (e.seasonRank ?? e.guruRank) : '–'}</td>`; }).join('')}
+    return `<tr class="row" data-profile="${esc(f.pool)}"><td class="l">${avatar(f)} ${esc(f.short)}</td>${yrs.map(y => { const e = finOf(rep, y); return `<td class="num">${e ? '#' + (e.seasonRank ?? e.guruRank) + finishMark(ctx, y) : '–'}</td>`; }).join('')}
       <td class="num">${pctS(m?.cover)}</td><td class="num">${pctS(m?.tens.cover)}</td><td class="num">${pctS(m?.dog.share)}</td><td class="num">${m ? (m.orderEdgePerWeek >= 0 ? '+' : '') + m.orderEdgePerWeek.toFixed(1) : '–'}</td></tr>`; }).join('');
-  const champs = [...yrs].reverse().map(y => { const aw = ctx.seasons[y].archive.winners?.awards || {}; const c = k => aw[k]?.[0] ? nameLink(aw[k][0]) : '–';
+  const champs = [...yrs].reverse().map(y => { const A = ctx.seasons[y].archive; if (A.partial && !A.winners) { const L = leadersOf(A)[0]; return `<div class="stat-row"><span><b>${y}</b>*</span><span>Leader after week ${A.partial.throughWeek}: ${nameLink(L.name)} <span class="muted">(final unknown)</span></span></div>`; }
+    const aw = A.winners?.awards || {}; const c = k => aw[k]?.[0] ? nameLink(aw[k][0]) : '–';
     return `<div class="stat-row"><span><b>${y}</b></span><span>Season ${c('Guru Season')}${aw['Guru Weeks 1-19'] ? ` · Weeks 1–19 ${c('Guru Weeks 1-19')}` : ''} · Bowls ${c('Bowls')}</span></div>`; }).join('');
   // year-over-year check of each league-wide lesson
   const VERDICT = { held: '★ Held up', flipped: '↔ Flipped', 'one-year': '½ One year only', noise: '· Noise' };
@@ -1309,7 +1335,7 @@ function viewHistoryAll(ctx, yrs, yrChips) {
     </div>
     ${title('The family, season by season')}
     <div class="panel tbl-wrap"><table><thead><tr><th class="l">Name</th>${yrs.map(y => `<th>${y} fin.</th>`).join('')}<th>Cover</th><th>10s</th><th>Underdogs</th><th>Order</th></tr></thead><tbody>${famRows}</tbody></table>
-      <p class="note">Cover, 10s, underdogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
+      <p class="note">${yrs.some(y => partialOf(ctx, y)) ? `* ${yrs.filter(y => partialOf(ctx, y)).join(', ')} is incomplete: rank through week ${partialOf(ctx, yrs.find(y => partialOf(ctx, y))).throughWeek}, not a final finish. ` : ''}Cover, 10s, underdogs and order pool every graded pick from ${C.label}. Order = points a week gained from confidence placement.</p></div>
     ${title('League lessons, year over year', 'z-score per season and combined')}
     <div class="panel tbl-wrap"><table class="yoy"><thead><tr><th class="l">Pattern (combined)</th>${yrs.map(y => `<th>${short(y)}</th>`).join('')}<th>All</th><th class="l">Verdict</th></tr></thead><tbody>${yoy}</tbody></table></div>`;
   bindProfileLinks($('#main'));

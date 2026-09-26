@@ -8,6 +8,10 @@ export function parseOdds(text) {
     let line = raw.replace(/ /g, ' ').replace(/TIE\s*BREAKER(\s+GAME)?/gi, ' ');
     const hdr = line.match(/(\w+)'s\s+(NFL|College)\s+Football\s+Games?/i);
     if (hdr) { section = { day: hdr[1], league: /NFL/i.test(hdr[2]) ? 'NFL' : 'CFB' }; continue; }
+    // "83,  FLORIDA" -> "83.  FLORIDA" (comma typed for the period)
+    line = line.replace(/(^|\s)(\d{1,3}),(?=\s+[A-Za-z])/g, '$1$2.');
+    // "SAN FRANCISC<tab>O" -> "SAN FRANCISCO" (a tab typed inside a name, leaving a 1-2 letter stub)
+    line = line.replace(/([A-Za-z])\t+([A-Za-z]{1,2})(?=\t|\s|$)/g, '$1$2');
     // "85   James Madison" -> "85. James Madison"
     line = line.replace(/(^|\s)(\d{1,3})(?:\s{2,}|\t+)(?=[A-Za-z])/g, '$1$2. ');
     const re = /(\d{1,3})\.\s*([A-Za-z][^\t]*?)\s+(\d*)(½?)\s+(\d{1,3})\.\s*(.+?)(?=\s+\d{1,3}\.\s|\s*$)/g;

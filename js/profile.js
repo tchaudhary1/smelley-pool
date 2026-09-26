@@ -74,6 +74,15 @@ export function buildContext({ archives = {}, league = null, family = [] }) {
   return { seasons, career, league, family };
 }
 
+// Each week's top 4: the commissioner's winners list, or (seasons without one) worked out from the scores.
+const top4Memo = new WeakMap();
+export function weeklyTop4(A) {
+  if (A.winners?.weeks) return A.winners.weeks;
+  if (top4Memo.has(A)) return top4Memo.get(A);
+  const out = {};
+  for (let w = 1; w <= 19; w++) { const s = A.entries.filter(e => e.weeks[w - 1] != null).sort((x, y) => y.weeks[w - 1] - x.weeks[w - 1]); if (s.length) out[w] = s.slice(0, 4).map(e => e.name); }
+  top4Memo.set(A, out); return out;
+}
 function findIn(names, name) { return names.find(n => n === name) || names.find(n => samePerson(n, name)) || null; }
 
 // ---------------------------------------------------------------- the report
@@ -92,18 +101,18 @@ export function scoutingReport(ctx, name) {
     const mean = weeks.length ? weeks.reduce((a, b) => a + b, 0) / weeks.length : null;
     const sd = weeks.length > 1 ? Math.sqrt(weeks.reduce((a, b) => a + (b - mean) ** 2, 0) / (weeks.length - 1)) : null;
     const half = Math.floor(weeks.length / 2);
-    const top4 = Object.entries(A.winners?.weeks || {}).filter(([, ns]) => ns.some(n => samePerson(n, name) || n === ent?.name)).map(([w, ns]) => ({ week: +w, place: 1 + ns.findIndex(n => samePerson(n, name) || n === ent?.name) }));
+    const top4 = Object.entries(weeklyTop4(A)).filter(([, ns]) => ns.some(n => samePerson(n, name) || n === ent?.name)).map(([w, ns]) => ({ week: +w, place: 1 + ns.findIndex(n => samePerson(n, name) || n === ent?.name) }));
     const bowlPts = A.bowls ? A.bowls.points[findIn(Object.keys(A.bowls.points), name)] : null;
     const bowlRank = bowlPts != null ? 1 + Object.values(A.bowls.points).filter(p => p > bowlPts).length : null;
     out.seasons.push({ season: +yr, entry: ent || null, metrics: m, weekly: { mean, sd, best: weeks.length ? Math.max(...weeks) : null, worst: weeks.length ? Math.min(...weeks) : null, leagueAvg: lgAvg,
       firstHalf: half ? weeks.slice(0, half).reduce((a, b) => a + b, 0) / half : null, secondHalf: half ? weeks.slice(half).reduce((a, b) => a + b, 0) / (weeks.length - half) : null },
-      top4, bowls: bowlPts != null ? { points: bowlPts, rank: bowlRank, of: Object.keys(A.bowls.points).length, max: A.bowls.maxPoints } : null, entries: A.entries.length });
+      top4, bowls: bowlPts != null ? { points: bowlPts, rank: bowlRank, of: Object.keys(A.bowls.points).length, max: A.bowls.maxPoints } : null, entries: A.entries.length, partial: A.partial || null });
   }
   // Tendencies come from every season pooled: twice the sample beats one year's noise.
   const C = ctx.career, ck = C ? findIn(Object.keys(C.per), name) : null, cm = ck ? C.per[ck] : null;
   const pickYears = out.seasons.filter(s => s.metrics).map(s => s.season).sort();
   if (cm) out.quirks = quirks(cm, C);
-  out.career = cm ? { metrics: cm, label: yrLabel(pickYears), years: pickYears, finishes: out.seasons.filter(s => s.entry).map(s => ({ season: s.season, rank: s.entry.seasonRank ?? s.entry.guruRank, of: s.entries })) } : null;
+  out.career = cm ? { metrics: cm, label: yrLabel(pickYears), years: pickYears, finishes: out.seasons.filter(s => s.entry).map(s => ({ season: s.season, rank: s.entry.seasonRank ?? s.entry.guruRank, of: s.entries, partial: s.partial?.throughWeek ?? null })) } : null;
   out.caveat = cm ? `Tendencies are based on ${cm.n.toLocaleString()} graded picks over ${cm.weeksPicked} weeks (${pickYears.join(' and ')}): patterns, not guarantees. A difference of a few percentage points is noise at this sample size.` : 'No past pick data for this player yet.';
   out.neighborhood = neighborhood(ctx, name);
   out.lessons = lessons(ctx, name, out.neighborhood);
@@ -178,11 +187,11 @@ export function reportText(rep) {
   const L = [`SCOUTING REPORT: ${rep.name}`];
   for (const s of rep.seasons) {
     const e = s.entry, m = s.metrics, w = s.weekly;
-    L.push(`${s.season}: ${e ? `finished rank ${e.seasonRank ?? e.guruRank} of ${s.entries} (weeks total ${e.total}${e.bowls != null ? `, bowls ${e.bowls}` : ''})` : 'not in the standings'}; weekly average ${w.mean != null ? r1(w.mean) : 'n/a'} (league ${r1(w.leagueAvg)}), best ${w.best}, worst ${w.worst}, first half ${w.firstHalf != null ? r1(w.firstHalf) : 'n/a'} vs second half ${w.secondHalf != null ? r1(w.secondHalf) : 'n/a'}${s.top4.length ? `; weekly top-4 finishes: ${s.top4.map(t => `week ${t.week} (#${t.place})`).join(', ')}` : ''}${s.bowls ? `; bowl pool ${s.bowls.points}/${s.bowls.max}, rank ${s.bowls.rank} of ${s.bowls.of}` : ''}.`);
+    L.push(`${s.season}${s.partial ? ` [INCOMPLETE SEASON: standings only through week ${s.partial.throughWeek}; week ${s.partial.missingWeeks.join(', ')} and the final result are missing; say so if you use it]` : ''}: ${e ? `${s.partial ? `ranked ${e.seasonRank ?? e.guruRank} of ${s.entries} after week ${s.partial.throughWeek}` : `finished rank ${e.seasonRank ?? e.guruRank} of ${s.entries}`} (weeks total ${e.total}${e.bowls != null ? `, bowls ${e.bowls}` : ''})` : 'not in the standings'}; weekly average ${w.mean != null ? r1(w.mean) : 'n/a'} (league ${r1(w.leagueAvg)}), best ${w.best}, worst ${w.worst}, first half ${w.firstHalf != null ? r1(w.firstHalf) : 'n/a'} vs second half ${w.secondHalf != null ? r1(w.secondHalf) : 'n/a'}${s.top4.length ? `; weekly top-4 finishes: ${s.top4.map(t => `week ${t.week} (#${t.place})`).join(', ')}` : ''}${s.bowls ? `; bowl pool ${s.bowls.points}/${s.bowls.max}, rank ${s.bowls.rank} of ${s.bowls.of}` : ''}.`);
     if (m) L.push(`  picks: ${m.n} graded, covered ${pct(m.cover)}; underdogs ${pct(m.dog.share)} of picks (covered ${pct(m.dog.cover)}), home ${pct(m.home.share)}, NFL ${pct(m.nfl.share)}; high-confidence 8-10 covered ${pct(m.top.cover ?? 0)}, low 1-3 covered ${pct(m.low.cover ?? 0)}; 10s covered ${m.tens.cover != null ? pct(m.tens.cover) : 'n/a'}; ordering edge ${r1(m.orderEdgePerWeek)} pts/week; contrarian share ${pct(m.contrarian.share)}.`);
   }
   const c = rep.career;
-  if (c && c.years.length > 1) { const m = c.metrics; L.push(`All seasons combined (${c.label}): ${m.n} picks, covered ${pct(m.cover)}; underdogs ${pct(m.dog.share)} of picks (covered ${pct(m.dog.cover)}); high-confidence 8-10 covered ${pct(m.top.cover ?? 0)}; 10s covered ${m.tens.cover != null ? pct(m.tens.cover) : 'n/a'}; ordering edge ${r1(m.orderEdgePerWeek)} pts/week. Finishes: ${c.finishes.map(f => `${f.season} #${f.rank} of ${f.of}`).join(', ')}.`); }
+  if (c && c.years.length > 1) { const m = c.metrics; L.push(`All seasons combined (${c.label}): ${m.n} picks, covered ${pct(m.cover)}; underdogs ${pct(m.dog.share)} of picks (covered ${pct(m.dog.cover)}); high-confidence 8-10 covered ${pct(m.top.cover ?? 0)}; 10s covered ${m.tens.cover != null ? pct(m.tens.cover) : 'n/a'}; ordering edge ${r1(m.orderEdgePerWeek)} pts/week. Finishes: ${c.finishes.map(f => `${f.season} #${f.rank} of ${f.of}${f.partial ? ` (after week ${f.partial}, not final)` : ""}`).join(', ')}.`); }
   if (rep.quirks.length) L.push(`Stands out (all seasons): ${rep.quirks.join(' ')}`);
   const fin = x => x.past?.filter(Boolean).map(p => `${p.season} #${p.rank}`).join(', ');
   if (rep.neighborhood) { const nb = rep.neighborhood; L.push(`This season: rank ${nb.me.rank} with ${nb.me.total}. Just ahead: ${nb.above.map(x => `${x.name} (#${x.rank}, ${x.gap ? '+' + x.gap : 'tied'}${fin(x) ? '; past finishes ' + fin(x) : ''})`).join(', ') || 'nobody (leader)'}. Just behind: ${nb.below.map(x => `${x.name} (#${x.rank}, ${x.gap || 'tied'}${fin(x) ? '; past finishes ' + fin(x) : ''})`).join(', ')}.`); }
@@ -297,12 +306,15 @@ export function historySummary(ctx, family) {
   const out = [];
   for (const yr of Object.keys(ctx.seasons).sort().reverse()) {
     const A = ctx.seasons[yr].archive; const aw = A.winners?.awards || {};
-    out.push(`${yr} SEASON (${A.entries.length} entries): season champion ${aw['Guru Season']?.[0] ?? 'n/a'}, weeks 1-19 champion ${aw['Guru Weeks 1-19']?.[0] ?? 'n/a'}, bowl pool champion ${aw['Bowls']?.[0] ?? 'n/a'}.`);
+    if (A.partial) {
+      const P = A.partial, top = [...A.entries].sort((a, b) => (b.total ?? 0) - (a.total ?? 0)).slice(0, 3);
+      out.push(`${yr} SEASON (${A.entries.length} entries) — INCOMPLETE DATA: standings only through week ${P.throughWeek}; week ${P.missingWeeks.join(', ')} and the final result are missing, so there is no known champion. Official weekly scores for weeks ${P.officialWeeks.join(', ')}; weeks ${P.rebuiltWeeks.join(', ')} are rebuilt from pick sheets. Bowl results partly unofficial. Leaders after week ${P.throughWeek}: ${top.map(e => `${e.name} ${e.total}`).join(', ')}.`);
+    } else out.push(`${yr} SEASON (${A.entries.length} entries): season champion ${aw['Guru Season']?.[0] ?? 'n/a'}, weeks 1-19 champion ${aw['Guru Weeks 1-19']?.[0] ?? 'n/a'}, bowl pool champion ${aw['Bowls']?.[0] ?? 'n/a'}.`);
     for (const f of family) {
       if (!f.pool) continue;
       const rep = scoutingReport(ctx, f.pool); const s = rep.seasons.find(x => x.season === +yr); if (!s?.entry) continue;
       const m = s.metrics;
-      out.push(`  ${f.short}: finished #${s.entry.seasonRank ?? s.entry.guruRank} (weeks total ${s.entry.total}, avg ${s.weekly.mean?.toFixed(1)}, best week ${s.weekly.best}, worst ${s.weekly.worst}${s.top4.length ? `, weekly top-4 ${s.top4.map(t => `wk${t.week} #${t.place}`).join(' ')}` : ''}${s.bowls ? `, bowls #${s.bowls.rank}` : ''})${m ? `; picks covered ${Math.round(m.cover * 100)}%, 10s covered ${m.tens.cover != null ? Math.round(m.tens.cover * 100) + '%' : 'n/a'}, underdogs ${Math.round(m.dog.share * 100)}% of picks` : ''}${rep.quirks[0] ? `; stands out: ${rep.quirks[0]}` : ''}`);
+      out.push(`  ${f.short}: ${A.partial ? `ranked #${s.entry.seasonRank ?? s.entry.guruRank} after week ${A.partial.throughWeek} (not final)` : `finished #${s.entry.seasonRank ?? s.entry.guruRank}`} (weeks total ${s.entry.total}, avg ${s.weekly.mean?.toFixed(1)}, best week ${s.weekly.best}, worst ${s.weekly.worst}${s.top4.length ? `, weekly top-4 ${s.top4.map(t => `wk${t.week} #${t.place}`).join(' ')}` : ''}${s.bowls ? `, bowls #${s.bowls.rank}` : ''})${m ? `; picks covered ${Math.round(m.cover * 100)}%, 10s covered ${m.tens.cover != null ? Math.round(m.tens.cover * 100) + '%' : 'n/a'}, underdogs ${Math.round(m.dog.share * 100)}% of picks` : ''}${rep.quirks[0] ? `; stands out: ${rep.quirks[0]}` : ''}`);
     }
     const L = leagueLessons(ctx, yr).filter(l => l.significant);
     if (L.length) out.push(`  League-wide patterns in ${yr} (statistically meaningful): ${L.map(l => l.text).join(' ')}`);
@@ -314,7 +326,7 @@ export function historySummary(ctx, family) {
       const fs = [...c.finishes].sort((a, b) => a.season - b.season); let trend = '';
       if (fs.length > 1) { const a = fs[fs.length - 2], b = fs[fs.length - 1], d = a.rank - b.rank;
         trend = d > 0 ? ` (improved ${d} places from ${a.season} to ${b.season})` : d < 0 ? ` (dropped ${-d} places from ${a.season} to ${b.season}; a bigger rank number is worse)` : ' (same finish both years)'; }
-      out.push(`  ${f.short}: finishes ${c.finishes.map(x => `${x.season} #${x.rank}`).join(', ')}${trend}; picks covered ${Math.round(c.metrics.cover * 100)}% over ${c.metrics.n}; 10s covered ${c.metrics.tens.cover != null ? Math.round(c.metrics.tens.cover * 100) + '%' : 'n/a'}`);
+      out.push(`  ${f.short}: finishes ${c.finishes.map(x => `${x.season} #${x.rank}${x.partial ? ` (after week ${x.partial}, not final)` : ""}`).join(', ')}${trend}; picks covered ${Math.round(c.metrics.cover * 100)}% over ${c.metrics.n}; 10s covered ${c.metrics.tens.cover != null ? Math.round(c.metrics.tens.cover * 100) + '%' : 'n/a'}`);
     }
     const tag = { held: '[held up every season]', flipped: '[reversed between seasons: not a strategy]', 'one-year': '[showed up in one season only]', noise: '[noise]' };
     out.push(`  League-wide patterns, all seasons pooled, with whether each held year to year: ${lessonVerdicts(ctx).map(l => `${tag[l.verdict]} ${l.text} (z by season: ${Object.entries(l.zs).map(([y, z]) => `${y} ${z == null ? 'n/a' : z.toFixed(1)}`).join(', ')})`).join(' ')}`);

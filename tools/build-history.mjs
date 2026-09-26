@@ -21,8 +21,8 @@ const ALIAS = JSON.parse(fs.readFileSync('tools/aliases.json', 'utf8'));
 // ---------------------------------------------------------------- odds sheets
 const docText = async f => (await new WordExtractor().extract(path.join(DIR, f))).getBody();
 function weekFile(re, w) {
-  const cands = files.filter(f => re.test(f) && new RegExp(`\\bWeek\\s*${w}\\b`, 'i').test(f));
-  return cands.find(f => /amended/i.test(f)) || cands[0] || null;
+  const cands = files.filter(f => re.test(f) && new RegExp(`\\bWeek\\s*${w}\\b`, 'i').test(f) && !/yearly totals/i.test(f));
+  return cands.find(f => /amended|corrected/i.test(f)) || cands[0] || null;
 }
 
 // ---------------------------------------------------------------- ESPN finals (cached)
@@ -43,6 +43,7 @@ function variants(name0, league) {
   // Clean typos/shorthand seen in real sheets before generating spellings.
   const name = name0.replace(/\.+$/, '').replace(/\(/g, ' (').replace(/\s+/g, ' ').trim()
     .replace(/^CINCINNAT I$/i, 'Cincinnati').replace(/^INDIANOPOLIS$/i, 'Indianapolis').replace(/^Appalachian\.? St\.?$/i, 'App State')
+    .replace(/^CALIIFORNIA$/i, 'California').replace(/^GEORIGIA ST\.?$/i, 'Georgia St.').replace(/^E \.\s*Carolina$/i, 'East Carolina').replace(/^Sam Houston St\.?$/i, 'Sam Houston')
     .replace(/^DETRIOT$/i, 'Detroit').replace(/^APPL?ACHIAN\.? ST\.?$/i, 'App State').replace(/^PHILADEPHIA$/i, 'Philadelphia')
     .replace(/^L\.?A\.? Rams$/i, 'Los Angeles Rams').replace(/^L\.?A\.? Chargers$/i, 'Los Angeles Chargers').replace(/^Miami-OH$/i, 'Miami (OH)').replace(/^Fl\. Atlantic$/i, 'Florida Atlantic');
   const v = new Set([name]);
@@ -101,11 +102,38 @@ function parseStandings(f) {
 }
 
 // ---------------------------------------------------------------- build
-const standings = parseStandings(files.find(f => /end of season/i.test(f)) || files.find(f => /scores and rankings/i.test(f)));
+const fullStandings = files.find(f => /end of season/i.test(f)) || files.find(f => /scores and rankings/i.test(f));
+const snapshot = fullStandings ? null : parseSnapshots();
+const standings = fullStandings ? parseStandings(fullStandings) : snapshot.standings;
+// Some seasons only have "Yearly totals through Week N" snapshots: each has that week's official score,
+// the season total so far, and the rank. The weeks between snapshots are rebuilt from the pick sheets
+// and checked against the change in totals.
+function parseSnapshots() {
+  const byW = new Map();
+  for (const f of files.filter(f => /yearly totals through week\s*\d+/i.test(f)).sort()) { const w = +f.match(/week\s*(\d+)/i)[1]; if (!byW.has(w)) byW.set(w, f); }
+  if (!byW.size) throw new Error('no standings file and no "Yearly totals through Week N" snapshots');
+  const people = new Map();
+  for (const [w, f] of [...byW].sort((a, b) => a[0] - b[0])) {
+    const rows = sheetRows(f); const hi = rows.findIndex(r => /^name$/i.test(String(r[0]).trim()));
+    const hdr = rows[hi].map(c => String(c).trim());
+    const cW = hdr.findIndex(h => new RegExp(`^week\\s*${w}$`, 'i').test(h)), cT = hdr.findIndex(h => /^total$/i.test(h)), cR = hdr.findIndex(h => /^rank$/i.test(h));
+    for (const r of rows.slice(hi + 1)) {
+      const name = String(r[0] || '').trim(); if (!name || typeof r[cT] !== 'number') continue;
+      const p = people.get(name) || { name, weeks: Array(19).fill(null), checkpoints: {}, rank: null, lastW: 0 }; people.set(name, p);
+      if (cW >= 0 && r[cW] !== '' && r[cW] != null) p.weeks[w - 1] = Number(r[cW]);
+      p.checkpoints[w] = Number(r[cT]); if (cR >= 0 && r[cR] !== '') p.rank = Number(r[cR]); p.lastW = Math.max(p.lastW, w);
+    }
+  }
+  const through = Math.max(...byW.keys());
+  const list = [...people.values()].filter(p => p.lastW === through);
+  const standings = list.map(p => ({ name: p.name, weeks: p.weeks, total: p.checkpoints[through], guruRank: p.rank, bowls: null, season: null, seasonRank: null, checkpoints: p.checkpoints }));
+  console.log(`standings from ${byW.size} snapshots (weeks ${[...byW.keys()].sort((a, b) => a - b).join(', ')}), ${standings.length} entries through week ${through}`);
+  return { standings, through, snapshotWeeks: [...byW.keys()].sort((a, b) => a - b) };
+}
 const official = new Map(standings.map(s => [s.name, s]));
 const weeks = []; const report = [];
 for (let w = 1; w <= 19; w++) {
-  const oddsF = weekFile(/odds/i, w); const matF = weekFile(/matrix/i, w);
+  const oddsF = weekFile(/\.doc$/i, w); const matF = weekFile(/(matrix|picks).*\.xlsx?$/i, w);
   const games = oddsF ? parseOdds(await docText(oddsF)) : [];
   // ESPN events in this week's window: Tue before .. Tue after the week's Thursday.
   const thu = new Date(START.getTime() + (w - 1) * 7 * 864e5);
@@ -153,7 +181,7 @@ async function buildBowls() {
     if (n > best) { best = n; oddsF = f; games = g; }
   }
   let res = null, bestOk = -1;
-  for (const f of files.filter(f => /auto calculate/i.test(f) && /\.xlsx?$/i.test(f))) {
+  for (const f of files.filter(f => /auto[\s-]*calculate/i.test(f) && /\.xlsx?$/i.test(f))) {
     const r = bowlPicks(f); const ok = Object.entries(r.points).filter(([n, p]) => official.get(n)?.bowls === p).length;
     if (ok > bestOk) { bestOk = ok; res = { ...r, matrixFile: f }; }
   }
@@ -192,6 +220,25 @@ function bowlPicks(matF) {
   return { winners, picks, points, tiebreakers: tb, maxPoints: gameCols.reduce((s, [k]) => s + k, 0) };
 }
 const bowls = await buildBowls();
+// Bowl winners the workbook never recorded: grade those games from ESPN's finals (the cover side's
+// pool number wins). The recorded winners are the check: ESPN has to agree with them.
+if (bowls && Object.values(bowls.winners).some(v => v == null)) {
+  const espnWin = {}; let agree = 0, disagree = [];
+  for (const g of bowls.games) {
+    if (!g.fav || g.spread == null) continue;
+    const d = new Date(String(g.when).replace(/,?\s*\d{1,2}:\d{2}\s*[AP]M.*$/i, '') + ' 12:00 UTC'); if (isNaN(d)) continue;
+    const evs = []; for (const k of [-1, 0, 1]) evs.push(...await espnDay('college-football', ymd(new Date(d.getTime() + k * 864e5))));
+    const found = matchEvent(evs, { ...g, league: 'CFB' }); const f = found.find(x => x.e.done); if (!f) continue;
+    const m = f.e.teams[f.a].score - f.e.teams[f.b].score; if (m === g.spread) continue;   // push: no winner
+    espnWin[g.points] = m > g.spread ? g.fav_no : g.dog_no;
+  }
+  for (const [k, v] of Object.entries(bowls.winners)) if (v != null && espnWin[k] != null) (espnWin[k] === v ? agree++ : disagree.push(k));
+  bowls.unofficialWinners = [];
+  for (const k of Object.keys(bowls.winners)) if (bowls.winners[k] == null && espnWin[k] != null) { bowls.winners[k] = espnWin[k]; bowls.unofficialWinners.push(+k); }
+  const keys = Object.keys(bowls.winners).map(Number).sort((a, b) => a - b);
+  for (const n of Object.keys(bowls.picks)) bowls.points[n] = keys.reduce((t, k, j) => t + (bowls.picks[n][j] != null && bowls.picks[n][j] === bowls.winners[k] ? k : 0), 0);
+  console.log(`bowls: ${bowls.unofficialWinners.length} winners filled from ESPN (unofficial); ESPN agrees with ${agree} of ${agree + disagree.length} recorded winners${disagree.length ? ' (differs on games ' + disagree.join(', ') + ')' : ''}; still unknown: ${keys.filter(k => bowls.winners[k] == null).join(', ') || 'none'}`);
+}
 
 // ---------------------------------------------------------------- names + final archive
 const stdNames = standings.map(s => s.name);
@@ -214,6 +261,7 @@ const archive = {
     return { week: w.week, games: w.games.map(g => ({ fav_no: g.fav_no, dog_no: g.dog_no, fav: g.fav, dog: g.dog, spread: g.spread, home: g.home, league: g.league, day: g.day, final: g.final, favCovers: g.favCovers ?? null, date: g.espn?.date ?? null })), picks: w.picks ? picks : null };
   }),
   gradingNotes: flagged,
+  partial: null,
   bowls: bowls && { games: bowls.games.map(g => ({ points: g.points, bowl: g.bowl, when: g.when, fav_no: g.fav_no, dog_no: g.dog_no, fav: g.fav, dog: g.dog, spread: g.spread })),
     winners: bowls.winners, maxPoints: bowls.maxPoints,
     picks: Object.fromEntries(Object.entries(bowls.picks).map(([n, p]) => [canon(n), p])),
@@ -232,6 +280,34 @@ function parseWinners(f) {
     else if (!k && names.length && !/^1st/i.test(names[0]) && section) out.awards[section] = names.map(canon);
   }
   return out;
+}
+if (snapshot) {
+  // Weeks without an official score get the rebuilt score; weekSource says which is which.
+  const graded = new Map();   // canon name -> { week: score }
+  for (const w of weeks) for (const [n, sc] of Object.entries(w.scores)) { const c = canon(n); (graded.get(c) || graded.set(c, {}).get(c))[w.week] = sc; }
+  let segOk = 0, segBad = [], segSkip = 0;
+  for (const e of archive.entries) {
+    const src = official.get(e.name); const gs = graded.get(e.name) || {};
+    e.weekSource = e.weeks.map((v, i) => (v != null ? 'official' : gs[i + 1] != null ? 'rebuilt' : null));
+    e.weeks = e.weeks.map((v, i) => (v != null ? v : gs[i + 1] ?? null));
+    const cps = [0, ...snapshot.snapshotWeeks]; const tot = w => (w === 0 ? 0 : src.checkpoints[w]);
+    for (let i = 1; i < cps.length; i++) {
+      const a = cps[i - 1], b = cps[i]; if (tot(a) == null || tot(b) == null) { segSkip++; continue; }
+      const ws = e.weeks.slice(a, b); if (ws.some(v => v == null)) { segSkip++; continue; }
+      const sum = ws.reduce((t, v) => t + v, 0);
+      if (sum === tot(b) - tot(a)) segOk++; else segBad.push(`${e.name} wk${a + 1}-${b}: ${sum} vs ${tot(b) - tot(a)}`);
+    }
+    e.total = src.total; e.guruRank = src.guruRank; e.throughWeek = snapshot.through;
+  }
+  const withPicks = weeks.filter(w => w.picks).map(w => w.week);
+  archive.partial = { throughWeek: snapshot.through, officialWeeks: snapshot.snapshotWeeks,
+    rebuiltWeeks: withPicks.filter(w => !snapshot.snapshotWeeks.includes(w)),
+    missingWeeks: Array.from({ length: 19 }, (_, i) => i + 1).filter(w => w > snapshot.through || (!withPicks.includes(w) && !snapshot.snapshotWeeks.includes(w))),
+    bowlsUnofficial: bowls?.unofficialWinners?.length || 0, bowlsUnknown: bowls ? Object.values(bowls.winners).filter(v => v == null).length : null,
+    stretchChecks: { ok: segOk, differ: segBad.length, skipped: segSkip } };
+  if (archive.bowls) { archive.bowls.winners = bowls.winners; archive.bowls.points = Object.fromEntries(Object.entries(bowls.points).map(([n, p]) => [canon(n), p])); archive.bowls.unofficialWinners = bowls.unofficialWinners || []; }
+  console.log(`stretch checks (rebuilt weeks + official scores vs change in official totals): ${segOk} match, ${segBad.length} differ, ${segSkip} skipped${segBad.length ? '; e.g. ' + segBad.slice(0, 5).join('; ') : ''}`);
+  console.log('partial:', JSON.stringify(archive.partial));
 }
 fs.writeFileSync(`local-data/history${SEASON}.json`, JSON.stringify(archive));
 console.log(`wrote local-data/history${SEASON}.json (${Math.round(fs.statSync(`local-data/history${SEASON}.json`).size / 1024)} KB); name matches:`, JSON.stringify(Object.fromEntries(Object.entries(nameMap).filter(([a, b]) => b && a !== b))),
