@@ -88,5 +88,7 @@
   </div>
   <div id="modalRoot"></div>
   <script type="module" src="js/app.js"></script>
+  <!-- Always load the newest files (sw.js). Live site only; the local preview skips it. -->
+  <script>if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) navigator.serviceWorker.register('sw.js').catch(function () {});</script>
 </body>
 </html>
