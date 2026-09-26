@@ -475,6 +475,16 @@ async function recentChat() {
   return (data || []).reverse().map(m => `${name[m.user_id] || '?'}: ${m.body}`).join('\n');
 }
 
+// ---------------------------------------------------------------- monitoring
+// One JSON line per event in monitor/commentator-<date>.jsonl (gitignored), and monitor/heartbeat.json
+// rewritten after every check. tools/after-action.mjs summarizes a day.
+const MON_DIR = path.join(ROOT, 'monitor'); fs.mkdirSync(MON_DIR, { recursive: true });
+const metric = (type, obj = {}) => { if (DRY) return; try { fs.appendFileSync(path.join(MON_DIR, `commentator-${etDate(Date.now())}.jsonl`), JSON.stringify({ t: new Date().toISOString(), type, ...obj }) + '\n'); } catch { /* never break the bot over a log line */ } };
+let TICK = {}; const TOTALS = { ticks: 0, errors: 0, espnFail: 0, posts: 0, since: new Date().toISOString() };
+const warn0 = console.warn;
+console.warn = (...a) => { if (String(a[0]).startsWith('ESPN fetch failed')) { TICK.espnFail = (TICK.espnFail || 0) + 1; TOTALS.espnFail++; } warn0(...a); };
+const beat = extra => { if (DRY) return; try { fs.writeFileSync(path.join(MON_DIR, 'heartbeat.json'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...TOTALS, ...extra }, null, 1)); } catch { /* ignore */ } };
+
 async function post(body, week, game) {
   if (DRY) { log('DRY-RUN would post:', body); return; }
   const { error } = await sb.from('messages').insert({ body, week, game_no: game ?? null });
@@ -489,10 +499,11 @@ log(`The Commentator is on (${MODEL}${DRY ? ', dry run' : ''}). Ctrl+C to stop.`
 async function tick() {
   const P = await loadPool();
   if (!P.week) { log('no week data'); return 300; }
-  const live = await fetchLive(P.week);
+  let tt = Date.now(); const live = await fetchLive(P.week); TICK.espnMs = Date.now() - tt;
+  TICK.live = [...live.values()].filter(s => s.state === 'in').length; TICK.final = [...live.values()].filter(s => s.state === 'post').length;
   P.week.research = buildModel(P.week, live);   // live cover chances for every game
   const events = detect(P, live);
-  const C = computeSim(P, live);
+  tt = Date.now(); const C = computeSim(P, live); TICK.simMs = Date.now() - tt;
   events.push(...whatIfEvents(P, live, C));
   const pv = previewEvent(P, live, C); if (pv) events.push(pv);
   const newsItems = await gatherNews(P, live).catch(() => []);
@@ -507,6 +518,7 @@ async function tick() {
   }
   const fresh = events.filter(e => !state.done[e.id] && (!e.gid || (state.perGame[e.gid] || 0) < MAX_PER_GAME));
   const anyLive = [...live.values()].some(s => s.state === 'in');
+  TICK.events = events.length; TICK.fresh = fresh.length; TICK.freshKinds = [...new Set(fresh.map(e => e.kind || (e.preview ? 'preview' : e.recap ? 'recap' : '?')))];
   save();
 
   if (P.settings.commentary === false) { if (!TEST_ASK) await mentions(me.id);   // muted: tags are skipped, not queued
@@ -565,6 +577,7 @@ async function tick() {
     system = QA_SYSTEM(); isQA = true;
     useWeb = WEB_QA && NEWSY.test(question); if (useWeb) { prompt += WEB_RULES; log('web search: on for this question'); }
     used = [];
+    TICK.qa = { msgId: m.id, asker: prof?.first_name || null, pickupSec: m.created_at ? Math.round((Date.now() - Date.parse(m.created_at)) / 1000) : null, web: useWeb, people: people.length, teams: teams.length };
     log('mention:', m.body.slice(0, 80));
   } else if (fresh.length) {
     const top = fresh.sort((a, b) => b.pri - a.pri).slice(0, 2);
@@ -575,12 +588,14 @@ async function tick() {
   } else return anyLive ? 60 : 300;
 
   typing(true);
+  const kind = isQA ? 'qa' : pvE && used.includes(pvE) ? 'preview' : rcE && used.includes(rcE) ? 'recap' : used.map(e => e.kind || '?').join('+');
+  const tPost = Date.now(); let claudeMs = 0, rewrites = 0;
   try {
-    const ask = p => isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t));
+    const ask = p => { const t0 = Date.now(); return (isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t))).finally(() => { claudeMs += Date.now() - t0; }); };
     let text = await ask(prompt);
     // Safety net: wrong pronoun for a family member, or any he/she for someone whose pronouns we don't know: rewrite once.
     for (let tries = 0; tries < 2; tries++) {
-      const wrong = misgendered(text, askPeople); if (!wrong) break;
+      const wrong = misgendered(text, askPeople); if (!wrong) break; rewrites++;
       const extra = askPeople.filter(n => !P.fam.some(f => f.pool === n));
       log(`rewriting: pronoun for ${wrong.who}`);
       text = await ask(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, but ${wrong.fix}${extra.length ? `; also never use he/she/his/her/him for ${extra.join(', ')} (repeat the name)` : ''}.`);
@@ -588,19 +603,23 @@ async function tick() {
     if (!text) throw new Error('empty reply');
     await post(text, P.week.week, gameNo);
     (isQA ? state.qa : state.posts).push(Date.now());
+    TOTALS.posts++; metric('post', { kind, chars: text.length, claudeMs, totalMs: Date.now() - tPost, rewrites, game: gameNo, ...(isQA ? TICK.qa : {}), answeredSec: isQA && TICK.qa?.pickupSec != null ? TICK.qa.pickupSec + Math.round((Date.now() - tPost) / 1000) : undefined });
     for (const e of used) { state.done[e.id] = true; if (e.gid) state.perGame[e.gid] = (state.perGame[e.gid] || 0) + 1; if (e.whatif) state.lastWhatIf = Date.now(); if (e.news) state.lastNews = Date.now(); if (e.recap) state.recapWeek = Math.max(state.recapWeek ?? 0, e.week); }
     // Everything else from this game that was pending is covered by the bundled message.
     for (const e of fresh) if (used.some(u => u.gid && u.gid === e.gid)) state.done[e.id] = true;
-  } catch (err) { log('error:', err.message); }
+  } catch (err) { log('error:', err.message); TOTALS.errors++; metric('error', { where: 'post', kind, message: String(err.message).slice(0, 300), claudeMs }); }
   typing(false);
   save();
   return anyLive ? 60 : 300;
 }
 
 // Between ticks, look for a new tag every 10 seconds and answer right away.
+metric('start', { pid: process.pid, model: MODEL }); beat({ status: 'starting' });
 for (;;) {
-  let wait = 120;
-  try { wait = await tick(); } catch (err) { log('tick failed:', err.message); }
+  let wait = 120; TICK = {}; const t0 = Date.now();
+  try { wait = await tick(); } catch (err) { log('tick failed:', err.message); TOTALS.errors++; metric('error', { where: 'tick', message: String(err.message).slice(0, 300) }); }
+  TOTALS.ticks++; const ms = Date.now() - t0;
+  metric('tick', { ms, wait, ...TICK }); beat({ status: 'ok', lastTickMs: ms, nextCheckSec: wait, liveGames: TICK.live ?? null });
   const until = Date.now() + wait * 1e3;
   while (Date.now() < until) {
     await new Promise(r => setTimeout(r, Math.min(10e3, until - Date.now())));
