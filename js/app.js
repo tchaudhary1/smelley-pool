@@ -130,7 +130,7 @@ async function start() {
   const nav = $('#tabs'), wrap = $('#tabsWrap');
   const edges = () => { const max = nav.scrollWidth - nav.clientWidth;
     wrap.classList.toggle('can-l', nav.scrollLeft > 4); wrap.classList.toggle('can-r', nav.scrollLeft < max - 4); };
-  nav.addEventListener('scroll', edges, { passive: true }); window.addEventListener('resize', edges);
+  nav.addEventListener('scroll', () => { edges(); updateUnread(); }, { passive: true }); window.addEventListener('resize', edges);
   $('#tabL').onclick = () => nav.scrollBy({ left: -nav.clientWidth * 0.7, behavior: 'smooth' });
   $('#tabR').onclick = () => nav.scrollBy({ left: nav.clientWidth * 0.7, behavior: 'smooth' });
   S.tabEdges = edges; setTimeout(edges, 50);
@@ -146,7 +146,7 @@ async function start() {
   } catch (err) { $('#main').innerHTML = `<div class="empty">Couldn't load pool data: ${esc(err.message)}</div>`; return; }
   if (!S.week) { $('#main').innerHTML = `<div class="empty">No data for this week yet.</div>`; return; }
   await Promise.all([refreshLive(), refreshSocial()]);
-  db.subscribe(() => refreshSocial().then(() => { botReplied(); if (S.tab === 'talk') render(); }),
+  db.subscribe(() => refreshSocial().then(() => { botReplied(); if (S.tab === 'talk') render(); else updateUnread(); }),
     ({ on }) => { if (on) botWait('typing'); else if (S.botWait?.phase === 'typing') botWait(null); });
   const hash = location.hash.slice(1); if (['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(hash)) S.tab = hash;
   // Deep links: ?season=2024|all opens History on that season, ?profile=<name> opens a scouting report.
@@ -157,7 +157,7 @@ async function start() {
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
   if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { updateUnread(); refreshLive().then(render); } });
 }
 function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
 
@@ -264,6 +264,36 @@ function shadowRow() {
 const pctile = (rank, n) => Math.round(100 * (n - rank) / Math.max(1, n - 1));
 
 // ============================================================ render
+// ---------- unread Smack Talk ----------
+// Per device: the time of the newest message this browser has shown in Smack Talk. New messages
+// from others badge the tab (an "@" when someone mentions you), pulse it, and count in the page title.
+const seenKey = () => `sp.chatSeen.${S.user?.key}`;
+const msgTime = m => Date.parse(m.at) || 0;
+function chatSeen() { try { const v = localStorage.getItem(seenKey()); return v == null ? null : +v; } catch { return S.chatSeenMem ?? null; } }
+function markChatSeen() {
+  const t = Math.max(0, ...S.msgs.map(msgTime));
+  try { localStorage.setItem(seenKey(), String(t)); } catch { /* private mode: remember for this visit */ }
+  S.chatSeenMem = t;
+}
+function updateUnread() {
+  const btn = $('#tabs button[data-tab="talk"]'); if (!btn || !S.user) return;
+  if (chatSeen() == null || (S.tab === 'talk' && !document.hidden)) markChatSeen();   // first visit on this device, or reading now
+  const seen = chatSeen() ?? 0, me = fam(S.user.key);
+  const tag = me ? new RegExp(`@${me.short}\\b`, 'i') : null;
+  const fresh = S.msgs.filter(m => msgTime(m) > seen && m.who !== S.user.key);
+  const n = fresh.length, mention = !!tag && fresh.some(m => tag.test(m.body));
+  btn.querySelector('.tab-badge')?.remove();
+  btn.classList.toggle('has-new', n > 0); btn.classList.toggle('has-mention', mention);
+  if (n) btn.insertAdjacentHTML('beforeend', `<span class="tab-badge" aria-label="${n} unread${mention ? ', you were mentioned' : ''}">${mention ? '@' : n > 9 ? '9+' : n}</span>`);
+  if (n > (S.unreadN || 0)) { btn.classList.remove('pulse'); void btn.offsetWidth; btn.classList.add('pulse'); }   // restart the pulse
+  S.unreadN = n;
+  document.title = n ? `(${n}) Smelley Pool` : 'Smelley Pool';
+  // On a phone the tab may be scrolled out of view: put a dot on the arrow that points to it.
+  const nav = $('#tabs'), mid = btn.offsetLeft + btn.offsetWidth / 2;
+  $('#tabL')?.classList.toggle('has-new', n > 0 && mid < nav.scrollLeft + 20);
+  $('#tabR')?.classList.toggle('has-new', n > 0 && mid > nav.scrollLeft + nav.clientWidth - 20);
+}
+
 function render() {
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
   document.body.classList.toggle('talk-mode', S.tab === 'talk');
@@ -272,6 +302,7 @@ function render() {
   setTimeout(() => S.tabEdges?.(), 400);
   const views = { gameday: viewGameDay, standings: viewStandings, h2h: viewH2H, lab: viewLab, talk: viewTalk, history: viewHistory, admin: viewAdmin, help: viewHelp };
   (views[S.tab] || viewGameDay)();
+  updateUnread();
 }
 function title(t, sub = '') { return `<div class="section-title"><h2>${t}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}</div>`; }
 

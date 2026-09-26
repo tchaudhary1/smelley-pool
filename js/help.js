@@ -105,6 +105,7 @@ export const HELP = [
       <li><b>Game tag:</b> tap the 🏈 chip to attach a game. Tapping the tag on a message opens that game's card.</li>
       <li><b>Reactions:</b> tap <b>＋🙂</b> under any message, or on a pick in a card, to react. Tap your reaction again to remove it.</li>
       <li>You can delete your own messages (the "delete" link next to your name).</li>
+      <li><b>New messages:</b> when someone posts while you're on another tab, Smack Talk gets a gold badge with the count (and a quick pulse), and the browser tab title shows it too, like "(3) Smelley Pool". If someone <b>@mentions you</b>, the badge turns rust-red with an "@". On a phone, if Smack Talk is scrolled out of view, the tab-bar arrow pointing to it gets a gold dot. Opening Smack Talk clears it. Each device keeps its own track of what you've read.</li>
       <li><b>Ask the Commentator</b>: tag <b>@Commentator</b> with a question. Blinking dots appear while it works, and the answer usually lands within half a minute. Untagged messages don't get an answer.</li></ul>` },
     { id: 'history', title: 'History (past seasons)', keys: 'history 2024 2025 last year past seasons archive champions week by week bowls lessons all seasons year over year held up flipped', body: `
       <p>The <b>History</b> tab rebuilds past seasons pick by pick from the commissioner's files, with every game graded against the final score. Two seasons are in so far, 2024 and 2025. About 98–99% of rebuilt cards match the official weekly scores exactly, and the official scores always win.)</p>
