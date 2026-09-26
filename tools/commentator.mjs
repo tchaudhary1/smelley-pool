@@ -37,6 +37,7 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || path.join(process.env.USERPROFILE |
 const MIN_GAP_S = 120, MAX_PER_HOUR = 10, MAX_PER_GAME = 4, MAX_QA_PER_HOUR = 30;
 const DRY = process.argv.includes('--dry-run');   // print instead of posting
 const FORCE_WHATIF = DRY && process.argv.includes('--force-whatif');   // test only: ignore game-state gating
+const FORCE_ASK = DRY && process.argv.includes('--force-ask');         // test only: ignore the question rate limit
 const FORCE_PREVIEW = DRY && process.argv.includes('--force-preview'); // test only: treat picks as complete
 // test only: answer one question as if a family member asked it:  --ask "what if Georgia covers?" --as jamie
 const TEST_ASK = DRY && process.argv.includes('--ask') ? process.argv[process.argv.indexOf('--ask') + 1] : null;
@@ -132,7 +133,7 @@ function detect(P, live) {
   const board = P.fam.filter(f => !f.shadow && P.week.picks?.[f.pool]).map(f => ({ f, pts: gradeEntry(P.week.picks[f.pool], P.week, live).banked }))
     .sort((a, b) => b.pts - a.pts);
   if (board.length > 1 && board[0].pts > 0 && board[0].pts > board[1].pts && state.leader !== board[0].f.key) {
-    events.push({ id: `leader:${board[0].f.key}:${board[0].pts}`, pri: 2, kind: 'new family leader this week',
+    events.push({ id: `leader:${board[0].f.key}:${board[0].pts}`, pri: 2, kind: 'new family leader this week', leaderKey: board[0].f.key,
       facts: `Week ${P.week.week} family standings right now: ${board.map(b => `${b.f.short} ${b.pts}`).join(', ')}. ${board[0].f.short} has taken the lead.` });
     state.leader = board[0].f.key;
   }
@@ -186,6 +187,51 @@ function whatIfEvents(P, live, C) {
       facts: top.map(t => t.text).join(' ') + ' These chances come from 5,000 simulated weeks using current lines.' });
   }
   return out;
+}
+
+// ---------------------------------------------------------------- questions to the family
+// Now and then a post ends with a question to someone with a stake, to get the family talking. A
+// light touch: at most one every 90 minutes and four a day, only on a real moment, never the same
+// person twice running. Replies from the people asked (within 20 minutes) get an emoji reaction
+// from the bot instead of another message.
+const ASK_GAP = 90 * 60e3, ASK_MAX_DAY = 4, REPLY_WINDOW = 20 * 60e3;
+const askable = e => (String(e.kind).startsWith('final') && e.pri >= 3) || (e.kind === 'cover flip' && e.pri >= 3) || String(e.kind).startsWith('late sweat')
+  || e.kind === 'new family leader this week' || e.news || (e.whatif && !String(e.id).startsWith('stakes:'));
+function askPlan(P, used) {
+  const today = etDate(Date.now());
+  state.asks = (state.asks || []).filter(a => etDate(a.t) === today);
+  if (!FORCE_ASK && (state.asks.length >= ASK_MAX_DAY || Date.now() - (state.asks.at(-1)?.t || 0) < ASK_GAP)) return null;
+  const e = used.find(askable); if (!e) return null;
+  const g = P.week.games.find(x => x.espn?.id === e.gid || x.fav_no === e.gid);
+  const stake = g ? familyPicks(P, g).filter(p => !p.f.shadow) : [];
+  const uniq = ps => [...new Map(ps.map(p => [p.f.key, p.f])).values()];
+  const civil = stake.some(p => p.side === 'fav') && stake.some(p => p.side === 'dog');
+  const last = state.asks.at(-1)?.who || [];
+  let who;
+  if (e.leaderKey) who = P.fam.filter(f => f.key === e.leaderKey);
+  else if (civil) who = uniq(stake);                                              // both sides of a family civil war
+  else who = uniq([...stake].sort((a, b) => b.conf - a.conf)).filter(f => !last.includes(f.key)).slice(0, 1);
+  return { who: who.map(f => f.key), names: who.length ? who.map(f => f.short) : ['the family'], civil, event: e.kind };
+}
+const REACT_WITH = ['🔥', '😂', '👀', '🙏', '🍑', '🚂'];
+async function reactToReplies(me) {
+  const open = (state.asks || []).filter(a => a.msgId && Date.now() - a.t < REPLY_WINDOW);
+  if (!open.length || DRY) return;
+  const { data: profs } = await sb.from('profiles').select('user_id, first_name');
+  const keyOf = Object.fromEntries((profs || []).map(p => [p.user_id, p.first_name]));
+  state.reacted ??= [];
+  for (const a of open) {
+    const { data: replies } = await sb.from('messages').select('id, user_id, body').gt('id', a.msgId).neq('user_id', me).is('archived_at', null).order('id').limit(20);
+    for (const m of replies || []) {
+      if (state.reacted.includes(m.id) || /@commentator\b/i.test(m.body)) continue;             // tagged replies get a real answer instead
+      if (a.who.length && !a.who.includes(keyOf[m.user_id])) continue;                          // only the people asked (or anyone, if it was the family)
+      const emoji = /\b(lol|haha|lmao|😂)/i.test(m.body) ? '😂' : /\?\s*$/.test(m.body) ? '👀' : REACT_WITH[m.id % REACT_WITH.length];
+      const { error } = await sb.from('reactions').insert({ target: `msg:${m.id}`, emoji });
+      state.reacted.push(m.id); state.reacted = state.reacted.slice(-200);
+      if (!error) { log(`reacted ${emoji} to ${keyOf[m.user_id]}'s reply`); metric('react', { msgId: m.id, who: keyOf[m.user_id], emoji }); }
+    }
+  }
+  save();
 }
 
 // ---------------------------------------------------------------- weekend kickoff preview
@@ -486,10 +532,11 @@ console.warn = (...a) => { if (String(a[0]).startsWith('ESPN fetch failed')) { T
 const beat = extra => { if (DRY) return; try { fs.writeFileSync(path.join(MON_DIR, 'heartbeat.json'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...TOTALS, ...extra }, null, 1)); } catch { /* ignore */ } };
 
 async function post(body, week, game) {
-  if (DRY) { log('DRY-RUN would post:', body); return; }
-  const { error } = await sb.from('messages').insert({ body, week, game_no: game ?? null });
+  if (DRY) { log('DRY-RUN would post:', body); return null; }
+  const { data, error } = await sb.from('messages').insert({ body, week, game_no: game ?? null }).select('id').single();
   if (error) throw error;
   log('posted:', body);
+  return data.id;
 }
 
 // ---------------------------------------------------------------- loop
@@ -499,6 +546,7 @@ log(`The Commentator is on (${MODEL}${DRY ? ', dry run' : ''}). Ctrl+C to stop.`
 async function tick() {
   const P = await loadPool();
   if (!P.week) { log('no week data'); return 300; }
+  await reactToReplies(me.id).catch(err => log('react failed:', err.message));
   let tt = Date.now(); const live = await fetchLive(P.week); TICK.espnMs = Date.now() - tt;
   TICK.live = [...live.values()].filter(s => s.state === 'in').length; TICK.final = [...live.values()].filter(s => s.state === 'post').length;
   P.week.research = buildModel(P.week, live);   // live cover chances for every game
@@ -536,7 +584,7 @@ async function tick() {
   if (!ment.length && now - lastPost < MIN_GAP_S * 1e3) return 45;
 
   // Mentions first, then the most important game events (bundled into one message).
-  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false, askPeople = [], useWeb = false;
+  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false, askPeople = [], useWeb = false, ask = null;
   const pvE = fresh.find(e => e.preview), rcE = fresh.find(e => e.recap);
   if (pvE && !ment.length) {
     prompt = `Write the WEEKEND KICKOFF PREVIEW for the family chat: hype everyone up for the weekend's storylines. Cover the family race, each of us vs the league, and the family vs the league, plus the must-watch games by day. Picks are already locked in, so don't tell anyone to make or change picks. Keep 'this week' and 'season' numbers exactly as labeled. Use only these facts:\n${pvE.facts}\n\nWrite the message.`;
@@ -584,6 +632,8 @@ async function tick() {
     if (top[0].pri < 2 && anyLive && now - lastPost < 15 * 60e3) { fresh.filter(e => e.pri < 2).forEach(e => state.done[e.id] = true); save(); return 60; }
     prompt = `Developments to comment on (${top.map(e => e.kind).join(' + ')}):\n${top.map(e => '- ' + e.facts).join('\n')}\n\nWrite the chat message.`;
     used = top;
+    ask = askPlan(P, used);
+    if (ask) { prompt += `\n\nThis time, end the message with ONE short, playful question to ${ask.names.join(' and ')}${ask.civil ? ' (they are on opposite sides of this game)' : ''} that invites a reply in the chat. They've already made their picks, so ask something they haven't told us: how they're feeling about their pick, a score prediction, a victory-dance plan, or a bit of friendly trash talk for whoever's on the other side (or, for the whole family, who they're rooting for). Address them by first name. Be a cheerleader, nothing about money or betting more. The whole message can be up to 300 characters.`; log(`asking: ${ask.names.join(', ')} (${ask.event})`); }
     const g = P.week.games.find(x => x.espn?.id === top[0].gid); gameNo = g?.fav_no ?? null;
   } else return anyLive ? 60 : 300;
 
@@ -601,8 +651,9 @@ async function tick() {
       text = await ask(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, but ${wrong.fix}${extra.length ? `; also never use he/she/his/her/him for ${extra.join(', ')} (repeat the name)` : ''}.`);
     }
     if (!text) throw new Error('empty reply');
-    await post(text, P.week.week, gameNo);
+    const postedId = await post(text, P.week.week, gameNo);
     (isQA ? state.qa : state.posts).push(Date.now());
+    if (ask && !DRY) { (state.asks ??= []).push({ t: Date.now(), who: ask.who, msgId: postedId }); metric('ask', { to: ask.names, event: ask.event, msgId: postedId }); }
     TOTALS.posts++; metric('post', { kind, chars: text.length, claudeMs, totalMs: Date.now() - tPost, rewrites, game: gameNo, ...(isQA ? TICK.qa : {}), answeredSec: isQA && TICK.qa?.pickupSec != null ? TICK.qa.pickupSec + Math.round((Date.now() - tPost) / 1000) : undefined });
     for (const e of used) { state.done[e.id] = true; if (e.gid) state.perGame[e.gid] = (state.perGame[e.gid] || 0) + 1; if (e.whatif) state.lastWhatIf = Date.now(); if (e.news) state.lastNews = Date.now(); if (e.recap) state.recapWeek = Math.max(state.recapWeek ?? 0, e.week); }
     // Everything else from this game that was pending is covered by the bundled message.

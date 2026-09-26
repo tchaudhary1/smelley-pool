@@ -154,6 +154,7 @@ export const HELP = [
       <li>a live game swings a storyline: the family race, someone's shot at a top-10 league week, or the family against the league (these <b>what-ifs</b> come at most every 40 minutes);</li>
       <li>the first family game of the day is about to kick off (a preview of the day's biggest stakes);</li>
       <li>big pre-game news hits a family game: the line moves 2½ points or more since the sheet, or a quarterback is ruled out or doubtful (at most one of these every few hours);</li>
+      <li>once in a while (at most every hour and a half) a post ends with a <b>question for someone</b> with a stake in the moment, or for the whole family. Answer right in the chat: the Commentator reacts to your reply with an emoji (tag @Commentator if you want a real answer back);</li>
       <li>a week's official scores are in: the <b>weekly recap</b> (the lead, the week's best, the movers, each of us, the family vs the league);</li>
       <li>someone tags <b>@Commentator</b>. It notices within about 10 seconds and usually answers within half a minute. Blinking dots in the chat mean it is working on it. Only tagged messages get an answer; if the dots sit there for a while, it may be offline.</li></ul>
       <p><b>Ask it anything about the pool.</b> It answers from the same live data as the dashboard: everyone's picks and live status, win odds, head-to-heads, league and season rankings, and the family against the league. Try:</p>
