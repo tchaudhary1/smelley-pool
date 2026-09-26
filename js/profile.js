@@ -285,6 +285,38 @@ export function teamPickText(ctx, name, team, extra = []) {
   return `TEAM PICKS: ${name} and ${label}. ${head ? `ANSWER: ${head} DETAIL: ` : ''}${parts.length ? parts.join(' ') : `${label} wasn't on any sheet on file.`}`;
 }
 
+// A person's record team by team, every season on file plus extra weeks: teams they back most, their
+// best and worst teams to back (min picks), and teams they've done best picking against.
+export function teamLeaderboard(ctx, name, extra = [], { min = 4 } = {}) {
+  const sources = Object.entries(ctx?.seasons || {}).sort().flatMap(([yr, s]) => s.archive.weeks.filter(w => w.picks).map(w => ({ yr, games: w.games, picks: w.picks })));
+  for (const x of extra) if (x.picks) sources.push({ yr: x.label, games: x.games, picks: x.picks });
+  const forT = new Map(), agT = new Map(), label = new Map(); let seasons = new Set(), total = 0;
+  const bump = (m, k, covered) => { const s = m.get(k) || { n: 0, c: 0, d: 0 }; s.n++; if (covered != null) { s.d++; if (covered) s.c++; } m.set(k, s); };
+  for (const w of sources) {
+    const pk = findIn(Object.keys(w.picks), name); if (!pk) continue; seasons.add(w.yr);
+    for (const no of Object.values(w.picks[pk].conf)) {
+      const g = w.games.find(x => x.fav_no === no || x.dog_no === no); if (!g) continue;
+      const side = no === g.fav_no ? 'fav' : 'dog', mine = side === 'fav' ? g.fav : g.dog, opp = side === 'fav' ? g.dog : g.fav;
+      const covered = g.favCovers == null ? null : (side === 'fav') === g.favCovers;
+      const lg = g.league || 'CFB', key = t => `${teamKey(t)}|${lg}`;   // the NFL Bills and the college Bulls are different teams
+      for (const t of [mine, opp]) if (!label.has(key(t))) label.set(key(t), String(t).toLowerCase().replace(/\b\w/g, c => c.toUpperCase()));
+      bump(forT, key(mine), covered); bump(agT, key(opp), covered); total++;
+    }
+  }
+  if (!total) return `TEAM RECORDS: no picks on file for ${name}.`;
+  const bases = [...label.keys()].map(k => k.split('|')[0]);
+  const both = new Set(bases.filter((t, i) => bases.indexOf(t) !== i));        // names used in both leagues
+  const nm = k => { const [t, lg] = k.split('|'); return label.get(k) + (both.has(t) ? (lg === 'NFL' ? ' (NFL)' : ' (college)') : ''); };
+  const fmt = ([k, s]) => `${nm(k)} ${s.c}/${s.d}${s.n > s.d ? ` (+${s.n - s.d} pending)` : ''}`;
+  const rate = s => s.c / s.d;
+  const most = [...forT].sort((a, b) => b[1].n - a[1].n).slice(0, 5);
+  const qual = [...forT].filter(([, s]) => s.d >= min);
+  const best = [...qual].sort((a, b) => rate(b[1]) - rate(a[1]) || b[1].d - a[1].d).slice(0, 3);
+  const worst = [...qual].sort((a, b) => rate(a[1]) - rate(b[1]) || b[1].d - a[1].d).slice(0, 3);
+  const vs = [...agT].filter(([, s]) => s.d >= min).sort((a, b) => rate(b[1]) - rate(a[1]) || b[1].d - a[1].d).slice(0, 3);
+  return `TEAM RECORDS for ${name} (${total} picks over ${[...seasons].join(', ')}; "X 5/6" = backed X 6 times, covered 5): most backed: ${most.map(fmt).join(', ')}. Best to back (${min}+ picks): ${best.map(fmt).join(', ') || 'none with enough picks'}. Worst to back: ${worst.map(fmt).join(', ') || 'n/a'}. Best when picking AGAINST (${min}+): ${vs.map(fmt).join(', ') || 'n/a'}. These are small samples: fun trivia, not a pattern (past results don't carry over in this pool).`;
+}
+
 // Did each league-wide pattern hold from season to season? Uses only years where the pattern was
 // clearly there on its own (|z| >= 2): opposite signs = flipped; the same direction every year (|z| >= 1 each) and
 // significant combined = held; significant in one year only = one-year; otherwise noise.

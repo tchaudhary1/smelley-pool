@@ -19,6 +19,8 @@ chat engagement before changing anything else.
   games whose live cover chance is above ~90% or below ~10%.
 - **"Today's biggest stakes" runs once a day** (the noon wave only): give each kickoff wave
   (noon, 3:30, evening, Sunday 1:00/4:25) its own heads-up.
+- **Sheet convention missing from the Commentator's brief:** asked about score order, it guessed "away
+  team first". Add the fact: the pool sheet lists the favorite first and the home team in CAPS.
 - **Quiet stretches with many games live:** consider a light halftime/"state of the race" nudge when
   nothing has posted for 30+ minutes during live games.
 - Fixed during the run (for the record): the question plan was shadowed by the drafting function (every
