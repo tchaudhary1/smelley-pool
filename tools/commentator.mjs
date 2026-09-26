@@ -215,7 +215,7 @@ function askPlan(P, used) {
 }
 const REACT_WITH = ['🔥', '😂', '👀', '🙏', '🍑', '🚂'];
 async function reactToReplies(me) {
-  const open = (state.asks || []).filter(a => a.msgId && Date.now() - a.t < REPLY_WINDOW);
+  const open = (state.asks || []).filter(a => a.msgId && Array.isArray(a.who) && Date.now() - a.t < REPLY_WINDOW);
   if (!open.length || DRY) return;
   const { data: profs } = await sb.from('profiles').select('user_id, first_name');
   const keyOf = Object.fromEntries((profs || []).map(p => [p.user_id, p.first_name]));
@@ -546,7 +546,7 @@ log(`The Commentator is on (${MODEL}${DRY ? ', dry run' : ''}). Ctrl+C to stop.`
 async function tick() {
   const P = await loadPool();
   if (!P.week) { log('no week data'); return 300; }
-  await reactToReplies(me.id).catch(err => log('react failed:', err.message));
+  await reactToReplies(me.id).catch(err => { log('react failed:', err.message); TOTALS.errors++; metric('error', { where: 'react', message: String(err.message).slice(0, 300) }); });
   let tt = Date.now(); const live = await fetchLive(P.week); TICK.espnMs = Date.now() - tt;
   TICK.live = [...live.values()].filter(s => s.state === 'in').length; TICK.final = [...live.values()].filter(s => s.state === 'post').length;
   P.week.research = buildModel(P.week, live);   // live cover chances for every game
@@ -641,14 +641,14 @@ async function tick() {
   const kind = isQA ? 'qa' : pvE && used.includes(pvE) ? 'preview' : rcE && used.includes(rcE) ? 'recap' : used.map(e => e.kind || '?').join('+');
   const tPost = Date.now(); let claudeMs = 0, rewrites = 0;
   try {
-    const ask = p => { const t0 = Date.now(); return (isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t))).finally(() => { claudeMs += Date.now() - t0; }); };
-    let text = await ask(prompt);
+    const draft = p => { const t0 = Date.now(); return (isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t))).finally(() => { claudeMs += Date.now() - t0; }); };
+    let text = await draft(prompt);
     // Safety net: wrong pronoun for a family member, or any he/she for someone whose pronouns we don't know: rewrite once.
     for (let tries = 0; tries < 2; tries++) {
       const wrong = misgendered(text, askPeople); if (!wrong) break; rewrites++;
       const extra = askPeople.filter(n => !P.fam.some(f => f.pool === n));
       log(`rewriting: pronoun for ${wrong.who}`);
-      text = await ask(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, but ${wrong.fix}${extra.length ? `; also never use he/she/his/her/him for ${extra.join(', ')} (repeat the name)` : ''}.`);
+      text = await draft(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content, but ${wrong.fix}${extra.length ? `; also never use he/she/his/her/him for ${extra.join(', ')} (repeat the name)` : ''}.`);
     }
     if (!text) throw new Error('empty reply');
     const postedId = await post(text, P.week.week, gameNo);
