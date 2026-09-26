@@ -157,7 +157,7 @@ async function start() {
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
   if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); refreshLive().then(render); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); refreshLive().then(() => { if (LIVE_TABS.has(S.tab) && !$('.modal')) render(); }); } });
   window.addEventListener('online', () => syncChat());
   setInterval(() => { if (!document.hidden) syncChat(); }, 20e3);
   chatSig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
@@ -225,11 +225,14 @@ async function syncChat() {
   if (changed) botReplied();
   if (changed && S.tab === 'talk' && !$('.modal')) render(); else updateUnread();
 }
+// Tabs that show live scores and odds redraw on each refresh; the rest (Help, History, Smack Talk,
+// Upload) keep what the reader has open.
+const LIVE_TABS = new Set(['gameday', 'standings', 'h2h', 'lab']);
 function schedule() {
   clearTimeout(S.timer);
   const anyLive = [...S.live.values()].some(s => s.state === 'in');
   const soon = S.week.games.some(g => g.espn && Math.abs(new Date(g.espn.kickoff) - Date.now()) < 20 * 60e3);
-  S.timer = setTimeout(async () => { await refreshLive(); if ($('.modal')) refreshOpenModal(); else if (S.tab !== 'talk' && S.tab !== 'admin') render(); schedule(); }, anyLive || soon ? 45e3 : 5 * 60e3);
+  S.timer = setTimeout(async () => { await refreshLive(); if ($('.modal')) refreshOpenModal(); else if (LIVE_TABS.has(S.tab)) render(); schedule(); }, anyLive || soon ? 45e3 : 5 * 60e3);
 }
 let modalRefresher = null;
 function refreshOpenModal() { modalRefresher?.(); }
@@ -1138,8 +1141,10 @@ function viewHelp() {
     const match = t => !words.length || words.every(w => (t.title + ' ' + t.keys + ' ' + t.body.replace(/<[^>]+>/g, ' ')).toLowerCase().includes(w));
     const html = groups.map(g => { const ts = g.topics.filter(match); if (!ts.length) return '';
       return `<section class="help-group" data-group="${esc(g.group)}"><h3 class="help-gh">${esc(g.group)}</h3>${ts.map(t =>
-        `<details class="panel help-item" id="help-${t.id}" ${words.length ? 'open' : ''}><summary>${esc(t.title)}</summary><div class="help-body">${t.body}</div></details>`).join('')}</section>`; }).join('');
+        `<details class="panel help-item" id="help-${t.id}" data-hid="${t.id}" ${words.length || S.helpOpen?.has(t.id) ? 'open' : ''}><summary>${esc(t.title)}</summary><div class="help-body">${t.body}</div></details>`).join('')}</section>`; }).join('');
     $('#hbody').innerHTML = html || '<div class="panel empty">No help topics match that. Try another word, or ask in Smack Talk.</div>';
+    S.helpOpen ??= new Set();
+    $$('#hbody details').forEach(d => d.addEventListener('toggle', () => { d.open ? S.helpOpen.add(d.dataset.hid) : S.helpOpen.delete(d.dataset.hid); }));
   };
   draw();
   $('#hq').oninput = e => { S.helpQ = e.target.value; draw(); };
@@ -1305,7 +1310,10 @@ async function viewHistory() {
       ${W.picks ? `<h4 class="lg-h">Games with family picks</h4>${games.map(gRow).join('')}` : `<div class="panel empty">${noData(w) ? 'No pick sheet or scores on file for this week.' : 'No pick sheet for this week, only scores.'}</div>`}`;
     bindProfileLinks(box);
   };
-  $('#hWeek').onchange = e => drawWeek(+e.target.value); drawWeek(A.weeks[0].week);
+  S.histWeek ??= {};
+  const startWeek = A.weeks.some(x => x.week === S.histWeek[yr]) ? S.histWeek[yr] : A.weeks[0].week;
+  $('#hWeek').value = String(startWeek);
+  $('#hWeek').onchange = e => { S.histWeek[yr] = +e.target.value; drawWeek(+e.target.value); }; drawWeek(startWeek);
   bindProfileLinks($('#main')); bindChips();
 }
 
