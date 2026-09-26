@@ -32,6 +32,14 @@ await crop('talk', 'chat', { top: 1280, height: 1100 });
 await crop('histall', 'history', { top: 470, height: 1460 });
 await crop('scout', 'scouting', { top: 3200, height: 950 });
 await crop('scout', 'neighborhood', { top: 5885, height: 900 });
+// Rivalries, game news and league storylines (tools/shot.mjs waits for live fetches; 500 wide):
+//   rivalry = ?preview&demo&as=jamie&h2h=debbie,jamie#h2h   (500x3800)
+//   news    = ?preview&demo&as=jamie&game=17#gameday         (500x3600, via tools/shot.mjs)
+//   league  = ?preview&demo&as=jamie#standings               (500x3000)
+await crop('rivalry', 'rivalry', { top: 4020, height: 1125 });
+await crop('rivalry', 'rivalry-history', { top: 6000, height: 840 });
+await crop('news', 'news', { top: 5290, height: 1300 });
+await crop('league', 'league', { top: 1320, height: 1440 });
 // Crest for the header (PNG with transparency, email-safe; webp isn't supported everywhere).
 await sharp('assets/crest-640.webp').resize(300).png({ compressionLevel: 9 }).toFile('assets/email/crest.png');
 console.log('crest', Math.round(fs.statSync('assets/email/crest.png').size / 1024) + ' KB');

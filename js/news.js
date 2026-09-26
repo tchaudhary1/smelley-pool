@@ -13,7 +13,10 @@ const KEY_STATUS = /^(out|doubtful|questionable)$/i;
 // ESPN team id from what build-week stored (logo URL ".../500/2335.png"), or an explicit id.
 export function teamId(g, side) {
   const e = g.espn || {}; const id = side === 'fav' ? e.favId : e.dogId; if (id) return String(id);
-  const m = String(side === 'fav' ? e.favLogo : e.dogLogo || '').match(/\/(\d+)\.png/); return m ? m[1] : null;
+  // College logos carry the numeric id; NFL logos are named by abbreviation ("sea.png"), and the
+  // news feed accepts the abbreviation too.
+  const m = String((side === 'fav' ? e.favLogo : e.dogLogo) || '').match(/\/(\d+)\.png/); if (m) return m[1];
+  return (side === 'fav' ? e.espnFav : e.espnDog) || null;
 }
 const sportOf = g => (g.espn?.sport === 'nfl' || g.league === 'NFL' ? 'nfl' : 'college-football');
 const getJSON = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); };

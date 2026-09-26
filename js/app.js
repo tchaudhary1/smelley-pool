@@ -154,6 +154,9 @@ async function start() {
   if (q.get('season')) { S.histYr = q.get('season'); if (!hash) S.tab = 'history'; }
   render(); schedule();
   if (q.get('profile')) openProfile(q.get('profile'));
+  // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
+  if (q.get('game')) openGame(+q.get('game'));
+  if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive().then(render); });
 }
 function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
@@ -983,6 +986,8 @@ function openLeagueMember(name) {
 // The rivalry card: this week's odds and the games that decide it, the all-time record, how they
 // pick differently, and the running gap this season.
 function openH2H(aKey, bKey) {
+  // Past seasons load in the background; redraw this card when they arrive (if it's still open).
+  if (!S.ctx) ensureHistory().then(() => { if ($(`.modal [data-rivalry="${aKey}-${bKey}"]`)) openH2H(aKey, bKey); }).catch(() => {});
   const T = leagueTable(); const sh = shadowRow();
   const fa = fam(aKey), fb = fam(bKey); if (!fa || !fb) return;
   const rowOf = f => f.shadow ? { name: 'Shadow card', f, weeks: sh.weeks, total: sh.total } : T.rows.find(r => r.f === f);
@@ -1029,7 +1034,7 @@ function openH2H(aKey, bKey) {
   const weekRows = a.weeks.map((v, i) => { const u = b.weeks[i]; if (v == null && u == null) return ''; const w = v != null && u != null ? (v > u ? nA : v < u ? nB : 'Tie') : '–';
     return `<div class="stat-row"><span>Week ${i + 1}</span><span class="num">${v ?? '–'} – ${u ?? '–'} <span class="muted">· ${w}</span></span></div>`; }).join('');
 
-  openModal(`${modalHead('Rivalry', `${avatar(fa)} ${nA} <span class="muted">vs</span> ${avatar(fb)} ${nB}`)}<div class="mb">
+  openModal(`${modalHead('Rivalry', `${avatar(fa)} ${nA} <span class="muted">vs</span> ${avatar(fb)} ${nB}`)}<div class="mb" data-rivalry="${aKey}-${bKey}">
     <div class="kv"><div><b>${a.total} – ${b.total}</b><span>${fa.shadow || fb.shadow ? 'Totals (shadow era only for shadow)' : 'Season totals'}</span></div>
       ${recTxt(h2hRecord(a.weeks, b.weeks)) !== '–' ? `<div><b>${recTxt(h2hRecord(a.weeks, b.weeks))}</b><span>This season, weekly (${nA} first)</span></div>` : ''}
       ${at?.per.length > 1 ? `<div><b>${recTxt(at.tot)}</b><span>All-time · ${leader}</span></div>` : ''}
