@@ -55,6 +55,13 @@ inside the home-screen app.
 
 Estimate: about a day. VAPID keys go in Bitwarden. Start with @mentions and "my picks".
 
+### "Last seen" usage record (privacy-light)
+Sign-ins only show fresh logins, so on Sep 26 we couldn't tell who just had the dashboard open (Debbie
+and Bobby signed in at kickoff but never posted; Joe left no trace). Add `last_seen_at` and a small
+`sessions` log to profiles: stamp on open, on return to the page, and every ~5 minutes while visible.
+Show it on the Upload tab ("Joe: active 7:10–8:30 PM", tabs opened) and feed the after-action report.
+No page contents or clicks tracked; just presence. One SQL snippet to run in Supabase.
+
 ## Later
 
 - Fill data gaps if files turn up: 2023 week 19 (picks + scores, final result), 2023 week 11/18
