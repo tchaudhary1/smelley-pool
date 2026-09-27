@@ -54,9 +54,27 @@ export const HELP = [
       <li><b>Exp</b>: expected points, a best guess that blends each pick's chance of covering.</li>
       <li><b>🏆 Win week</b>: chance to win the family this week (once two or more family cards are loaded). Until then, <b>⚔️ Beats shadow</b> shows the head-to-head against Tarun's unofficial shadow card.</li>
       <li><b>🏟️ League</b>: likely rank among all league entries this week, and the chance of a top-10 week.</li>
-      <li>The <b>row of numbered boxes</b> is your picks by confidence, 10 down to 1: solid green won, green outline winning right now, orange losing right now, crossed out lost, grey not started.</li></ul>
+      <li>The <b>row of numbered boxes</b> is your picks by confidence, 10 down to 1: solid green won, green outline winning right now, orange losing right now, crossed out lost, grey not started. See <b>Reading a family card</b> for the full legend.</li></ul>
       <p><b>Lead Watch</b> shows games in progress where a family pick is on the line, and whether each person is covering and by how much. "Not safe" means the cushion is less than a touchdown. Before games start, it shows what's kicking off next.</p>
       <p><b>The slate</b> lists every game on this week's sheet. Use the filters (Family picks, All, Live, NFL, College, Final). Tap any game for its card.</p>` },
+    { id: 'family-card', title: 'Reading a family card (colors, crossed-out numbers)', keys: 'family card scoreboard colors color boxes numbers crossed out strikethrough green orange red grey outline pips legend banked live max exp win week league season T- shadow stripe', body: `
+      <p>Each person's card on Game Day has ten small boxes: their picks in confidence order, <b>10 on the left down to 1 on the right</b>. The number in a box is the points riding on that pick; the color shows where it stands right now.</p>
+      <div class="pips" style="max-width:360px;margin:8px 0 4px"><span class="pip lost">10</span><span class="pip won">9</span><span class="pip won">8</span><span class="pip">7</span><span class="pip losing">6</span><span class="pip won">5</span><span class="pip won">4</span><span class="pip lost">3</span><span class="pip">2</span><span class="pip winning">1</span></div>
+      <ul><li><span class="pip won" style="display:inline-grid;width:26px;height:20px;vertical-align:middle">9</span> <b>Solid green: won.</b> The game is over and the pick covered; those points are banked.</li>
+      <li><span class="pip lost" style="display:inline-grid;width:26px;height:20px;vertical-align:middle">10</span> <b>Red, crossed out: lost.</b> The game is over and the pick didn't cover.</li>
+      <li><span class="pip winning" style="display:inline-grid;width:26px;height:20px;vertical-align:middle">1</span> <b>Green outline: covering right now.</b> Game in progress, currently on the right side of the spread.</li>
+      <li><span class="pip losing" style="display:inline-grid;width:26px;height:20px;vertical-align:middle">6</span> <b>Orange outline: not covering right now.</b> Game in progress, currently on the wrong side.</li>
+      <li><span class="pip" style="display:inline-grid;width:26px;height:20px;vertical-align:middle">7</span> <b>Plain grey: not started yet.</b></li></ul>
+      <p>Outlined boxes can still change until the final whistle; solid and crossed-out ones are settled.</p>
+      <p><b>The numbers under the name:</b></p>
+      <ul><li><b>pts banked</b>: points already won from finished games (the solid green boxes).</li>
+      <li><b>Live +N</b>: points on games in progress that are covering right now (the green outlines). They'd be added if the games ended this minute.</li>
+      <li><b>Max</b>: the most they can still reach: banked plus every pick not yet lost.</li>
+      <li><b>Exp</b>: the expected final score: banked plus each open pick's points times its chance to cover (from live scores and betting lines).</li>
+      <li><b>🏆 Win week</b>: the chance of the top score in the family this week, from 5,000 simulated finishes of the weekend.</li>
+      <li><b>🏟️ League: about #N this week · top-10 X%</b>: where they're likely to finish this week among all the league's entries, and the chance of a top-10 week.</li>
+      <li><b>Season T-9 of 113 · 96 pts</b>: the official season standing so far ("T-" means tied), from the commissioner's weekly totals.</li></ul>
+      <p><b>The colored stripe</b> down the left edge (and the circle color) is that person's color. <b>Tarun's shadow card</b> ("Shadow · Unofficial") is a practice card that isn't entered in the pool, so it has no family win odds or season line. <b>Tap any card</b> for the full list: every pick with its team, live status and chance to cover.</p>` },
     { id: 'reading-games', title: 'Reading a game row', keys: 'spread home number pool # chips hook cover bar', body: `
       <ul><li>The <b>favorite</b> is on the left with the minus spread; the <b>underdog</b> is on the right with the plus spread.</li>
       <li><b>HOME</b> marks the home team (the sheet prints home teams in CAPITALS).</li>
