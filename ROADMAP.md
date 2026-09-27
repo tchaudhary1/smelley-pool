@@ -8,25 +8,14 @@ Things we've agreed to revisit. Newest decisions at the top of each section.
 Run `node tools/after-action.mjs 2026-09-26` and go through uptime, response times, errors and
 chat engagement before changing anything else.
 
-### Fixes noted during the Sep 26 live run
-- **Avatars: two "J"s.** Jamie and Joe both show "J" in small avatars (tables, rivalry grid, pick chips,
-  chat); color alone is a weak cue, especially for anyone color-blind. Fix: use two letters when first
-  initials collide ("Ja" / "Jo"), or each person's emoji from `js/config.js` (🍑 🚂 🦬 ⚾ 🏈), with the
-  full name in the tooltip.
-- **Commentator over-explains basics** ("point spread (the projected margin)"): soften the plain-words
-  rule to explain only unusual terms, never spread/favorite/underdog/cover.
-- **What-ifs on decided games** (Toledo up 40–9 with 13 minutes left, "odds stay flat at 51%"): skip
-  games whose live cover chance is above ~90% or below ~10%.
-- **"Today's biggest stakes" runs once a day** (the noon wave only): give each kickoff wave
-  (noon, 3:30, evening, Sunday 1:00/4:25) its own heads-up.
-- **Sheet convention missing from the Commentator's brief:** asked about score order, it guessed "away
-  team first". Add the fact: the pool sheet lists the favorite first and the home team in CAPS.
-- **Favorite/underdog mislabels in game calls:** a dry-run final called Bobby's UCLA −1½ (a favorite) an "underdog pick". Put "favorite"/"underdog" explicitly into each pick fact.
-- **Quiet stretches with many games live:** consider a light halftime/"state of the race" nudge when
-  nothing has posted for 30+ minutes during live games.
-- Fixed during the run (for the record): the question plan was shadowed by the drafting function (every
-  post logged as a question; reply reactions failed); reply failures now count as errors so the
-  watchdog sees them.
+### Fixes from the Sep 26 live run (done Sep 27 morning unless noted)
+- Done: JS / JP avatars for Jamie and Joe (first + last initial, worked out from the private roster).
+- Done: no explaining basics (spread, cover, favorite, underdog); every pick fact says favorite or underdog; percentages keep exact labels.
+- Done: in-game what-ifs skip games that are effectively decided (cover chance above 90% or below 10%).
+- Done: a "biggest stakes" heads-up before each kickoff wave, not just the first of the day; what-if spacing no longer blocks it.
+- Decided against: changing score presentation or adding the sheet convention; cutting post volume (the running commentary is wanted; little family chat is expected).
+- Still open: a light "state of the race" nudge in long quiet stretches (low priority).
+- Fixed during the run: the question plan was shadowed by the drafting function; reply failures now count as errors.
 
 ### Move the Commentator off the PC
 Today it runs inside a Claude Code session on Tarun's desktop, so it stops if the app closes.

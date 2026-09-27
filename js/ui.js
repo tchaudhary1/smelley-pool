@@ -10,7 +10,7 @@ export const fmt1 = x => (Math.round(x * 10) / 10).toFixed(1);
 export const fam = key => FAMILY.find(f => f.key === key) || (key === BOT.key ? BOT : undefined);
 export const famByPool = name => FAMILY.find(f => f.pool === name);
 export const initial = f => f?.initial || (f?.short || '?')[0];
-export const avatar = (f, cls = '') => `<span class="av ${cls}" style="background:${f?.color || '#888'}" title="${esc(f?.short)}">${esc(initial(f))}</span>`;
+export const avatar = (f, cls = '') => `<span class="av ${cls}${initial(f).length > 1 ? ' two' : ''}" style="background:${f?.color || '#888'}" title="${esc(f?.short)}">${esc(initial(f))}</span>`;
 
 export const etTime = iso => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' }).replace(':00', '');
 export const etDay = iso => new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'short', day: 'numeric' });

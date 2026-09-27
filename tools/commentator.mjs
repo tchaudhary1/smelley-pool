@@ -95,7 +95,7 @@ function scoreLine(g, st) {
 function pickFacts(g, st, picks) {
   return picks.map(p => {
     const cushion = p.side === 'fav' ? st.margin - g.spread : g.spread - st.margin;
-    const s = `${who(p)} has ${p.conf} confidence points on ${nice(line(g, p.side))}`;
+    const s = `${who(p)} has ${p.conf} confidence points on ${nice(line(g, p.side))} (the ${p.side === 'fav' ? 'favorite' : 'underdog'})`;
     if (st.state === 'post') return `${s}: ${cushion > 0 ? `COVERED by ${fmtHalf(cushion)} (+${p.conf} points)` : `did NOT cover, missed by ${fmtHalf(-cushion)} (0 points)`}.`;
     return `${s}: currently ${cushion > 0 ? `covering by ${fmtHalf(cushion)}` : `NOT covering; needs ${fmtHalf(-cushion)} more points of margin to cover`}.`;
   }).join(' ');
@@ -164,26 +164,31 @@ function whatIfEvents(P, live, C) {
   const MIN = { family: 0.2, h2h: 0.2, top10: 0.15, familyVsLeague: 0.12 };
   const all = [...sim.whatifs, ...(sim.leagueWhatifs || [])].filter(w => w.impact >= (FORCE_WHATIF ? 0 : MIN[w.mode] ?? 0.2)).sort((x, y) => y.impact / MIN[y.mode] - x.impact / MIN[x.mode]);
   const out = [];
-  if (!FORCE_WHATIF && Date.now() - (state.lastWhatIf || 0) < WHATIF_GAP) return out;
+  const gapOk = FORCE_WHATIF || Date.now() - (state.lastWhatIf || 0) >= WHATIF_GAP;   // spacing applies to in-game what-ifs only
   const stateOf = no => { const g = P.week.games.find(x => x.fav_no === no); return { g, st: gameState(g, live, P.week.research) }; };
   // (a) In-game: the live game that swings the race most, once it's past the first quarter.
-  for (const w of all) {
+  if (gapOk) for (const w of all) {
     const { g, st } = stateOf(w.favNo);
     if (!FORCE_WHATIF && (st.state !== 'in' || (st.period ?? 0) < 2)) continue;
+    if (!FORCE_WHATIF && (st.pFav > 0.9 || st.pFav < 0.1)) continue;   // effectively decided: nothing left to root for
     const d = describeWhatIf(w, P.week, label); if (!d) break;
     out.push({ id: `whatif:${g.espn.id}:${w.mode}`, gid: g.espn.id, pri: 2, kind: { family: 'what-if (how this game swings the family race)', h2h: 'what-if (head to head against the shadow card)', top10: 'what-if (a family member vs the whole league)', familyVsLeague: 'what-if (the family vs the rest of the league)' }[w.mode], whatif: true,
       facts: `${d.text} Right now: ${scoreLine(g, st)} These chances come from 5,000 simulated weeks using live scores and betting lines.` });
     break;
   }
-  // (b) Before the day's slate: the day's biggest stakes, once per day, within 45 minutes of the first family kickoff.
+  // (b) Before each kickoff wave (noon, 3:30, evening; Sunday 1:00, 4:05/4:25, night): the wave's biggest
+  // stakes, within 45 minutes of its first family kickoff. Kickoffs within an hour of each other are one wave.
   const today = etDate(Date.now());
-  const todays = P.week.games.filter(g => g.espn && etDate(g.espn.kickoff) === today && familyPicks(P, g).length);
-  const first = todays.map(g => new Date(g.espn.kickoff)).sort((a, b) => a - b)[0];
+  const upcoming = P.week.games.filter(g => g.espn && etDate(g.espn.kickoff) === today && familyPicks(P, g).length && gameState(g, live, P.week.research).state === 'pre')
+    .map(g => ({ g, t: new Date(g.espn.kickoff) })).sort((a, b) => a.t - b.t);
+  const first = upcoming[0]?.t;
   if (first && first - Date.now() < 45 * 60e3 && first - Date.now() > -10 * 60e3) {
-    const fam1 = all.find(w => ['family', 'h2h'].includes(w.mode) && todays.some(g => g.fav_no === w.favNo));
-    const lg1 = all.find(w => ['top10', 'familyVsLeague'].includes(w.mode) && todays.some(g => g.fav_no === w.favNo));
+    const wave = upcoming.filter(x => x.t - first < 60 * 60e3).map(x => x.g);
+    const fam1 = all.find(w => ['family', 'h2h'].includes(w.mode) && wave.some(g => g.fav_no === w.favNo));
+    const lg1 = all.find(w => ['top10', 'familyVsLeague'].includes(w.mode) && wave.some(g => g.fav_no === w.favNo));
     const top = [fam1, lg1].filter(Boolean).map(w => describeWhatIf(w, P.week, label)).filter(Boolean);
-    if (top.length) out.push({ id: `stakes:${today}`, pri: 2, kind: "today's biggest stakes (preview before kickoff)", whatif: true,
+    const at = first.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+    if (top.length) out.push({ id: `stakes:${today}:${first.toISOString()}`, pri: 2, kind: `the ${at} kickoffs' biggest stakes (preview before kickoff)`, whatif: true,
       facts: top.map(t => t.text).join(' ') + ' These chances come from 5,000 simulated weeks using current lines.' });
   }
   return out;
@@ -444,7 +449,9 @@ The pool: each person picks 10 games against the pool's printed point spreads an
 Rules:
 - Write ONE chat message, 1-2 sentences, at most 240 characters. Output only the message text, no quotes, no hashtags.
 - Cheeky, warm, family-friendly. Tease the picks and the luck, never the person. No profanity.
-- Plain words, not betting slang: say "underdog" and "favorite" (never "dog" or "fav"), and explain any other jargon in passing.
+- Plain words: say "underdog" and "favorite" (never "dog" or "fav"). The family knows the basics, so never explain spread, cover, favorite, underdog or confidence points; only explain a genuinely unusual term.
+- Every pick fact says whether it's on the favorite or the underdog; repeat that exactly and never swap them.
+- Percentages come with exact labels: "chance to win the family this week", "chance of a top-10 week in the whole league", "the family's chance to beat the league average". Keep each number with its own label; never turn one kind into another.
 - Use ONLY the facts provided. Never compute new numbers or invent stats, injuries or quotes; reuse the numbers exactly as given.
 - Use first names. Use each person's pronouns exactly as listed below; for anyone not listed, repeat their name instead of guessing a pronoun. At most one emoji. Reference the motto or crest only occasionally, when it fits.
 - Don't encourage real-money gambling. Don't mention being an AI unless someone asks directly.
@@ -569,7 +576,8 @@ async function tick() {
   TICK.events = events.length; TICK.fresh = fresh.length; TICK.freshKinds = [...new Set(fresh.map(e => e.kind || (e.preview ? 'preview' : e.recap ? 'recap' : '?')))];
   save();
 
-  if (P.settings.commentary === false) { if (!TEST_ASK) await mentions(me.id);   // muted: tags are skipped, not queued
+  if (P.settings.commentary === false && !DRY) {   // dry runs ignore the mute (they never post)
+    if (!TEST_ASK) await mentions(me.id);   // muted: tags are skipped, not queued
     if (fresh.length) log(`muted: skipping ${fresh.length} events`); fresh.filter(e => !e.preview && !e.recap).forEach(e => state.done[e.id] = true); save(); return anyLive ? 60 : 300; }
 
   const now = Date.now();

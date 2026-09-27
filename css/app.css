@@ -549,3 +549,7 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 .tab-arrow.l.has-new::after { left: 6px; }
 .tab-arrow.r.has-new::after { right: 6px; }
 @media (prefers-reduced-motion: reduce) { nav.tabs button.pulse .tab-badge { animation: none; } }
+
+/* Two-letter avatars (Jamie "JS", Joe "JP") */
+.av.two { font-size: 11px; letter-spacing: -0.02em; }
+.pk .av.two, .lw .verdict .av.two, .me-chip .av.two { font-size: 8px; }

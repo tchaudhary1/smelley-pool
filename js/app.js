@@ -139,6 +139,13 @@ async function start() {
   try {
     const roster = await db.loadRoster().catch(() => ({}));
     for (const f of FAMILY) if (roster[f.key]) f.pool = roster[f.key];
+    // Two people sharing a first initial (Jamie, Joe) get first + last initials ("JS", "JP"),
+    // worked out from the private roster so last names never live in the public code.
+    for (const f of FAMILY) {
+      const same = FAMILY.filter(o => !o.shadow && o.short[0] === f.short[0]);
+      const last = String(f.pool || '').trim().split(/\s+/).at(-1);
+      if (!f.shadow && same.length > 1 && last && f.pool.includes(' ')) f.initial = (f.short[0] + last[0]).toUpperCase();
+    }
     const settings = await db.loadDataset('settings').catch(() => null);
     S.settings = settings || { currentWeek: CURRENT_WEEK };
     const wk = settings?.currentWeek ?? CURRENT_WEEK;
