@@ -2,7 +2,20 @@
 
 Things we've agreed to revisit. Newest decisions at the top of each section.
 
-## Next up (after the first live Saturday, Sep 26 2026)
+## First priority: documentation, git and backup (agreed Sep 27 2026)
+Do this before any other roadmap item, so a fresh agent (or person) can run, fix and extend everything.
+
+1. **Public docs (this repo, nothing private):** a `CLAUDE.md` for agents (architecture, commands,
+   gotchas), `docs/OPERATIONS.md` (weekly data load, game day, monitoring, hibernate, after-action,
+   incidents) and a rewritten README. Move the useful helper scripts out of the ignored sandbox into
+   `tools/`.
+2. **Private repo (`smelley-pool-private`):** raw historic source files, weekly pick sheets and
+   matrices, `local-data/`, `inputs/`, and private operating notes (family details, preferences,
+   commissioner items, how secrets are fetched). Never any secret values.
+3. **Secrets:** move the Commentator's bot login out of a local file into the secrets manager.
+4. **Backup:** a script that exports every Supabase dataset and the chat to the private repo, run
+   weekly (the free plan has no restore points).
+
 
 ### After-action review
 Run `node tools/after-action.mjs 2026-09-26` and go through uptime, response times, errors and

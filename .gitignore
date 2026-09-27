@@ -10,3 +10,4 @@ commentator.log
 demo-data/
 history-cache/
 monitor/
+*.local.md
