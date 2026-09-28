@@ -27,6 +27,7 @@ import { buildContext, scoutingReport, reportText, historySummary, teamsInText, 
 import { samePerson } from '../js/names.js';
 import { leagueStorylines } from '../js/storylines.js';
 import { fetchGameNews, newsFacts } from '../js/news.js';
+import { QUERY_GUIDE, buildTables, runQuery } from '../js/query.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SANDBOX = path.join(ROOT, '.commentator-sandbox');
@@ -388,6 +389,35 @@ function namedPeople(P, question) {
 // results, Claude maps it to a scenario and the simulator re-runs the week with those results
 // locked in, 3) Claude answers from those numbers only.
 const HYPO = /\b(what if|what happens|if\b|suppose|covers?|wins?|loses?|beats?|scenario|need|needs)\b/i;
+// Data questions ("how often does Jamie pick the underdog in her 8 spot?"): the model writes a JSON query,
+// the code checks the data exists and computes the answer (js/query.js). Empty when it isn't a data question.
+async function planQuery(P, live, hctx, question, asker) {
+  if (!hctx) return '';
+  try {
+    const raw = await askClaude(`Family members: ${P.fam.filter(f => !f.shadow && f.pool).map(f => `${f.short} (${f.pool})`).join(', ')}. The person asking is ${asker}; "I", "me" or "my" means them.
+This season: ${P.league?.season ?? ''}, currently week ${P.week?.week ?? '?'}.
+
+Question: "${question}"
+
+Output the JSON.`, QUERY_GUIDE);
+    if (DRY) log('query plan:', raw.replace(/\s+/g, ' ').slice(0, 400));
+    const spec = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || 'null');
+    if (!spec || (spec.answerable !== false && !spec.queries?.length)) return '';
+    // This week's finished games count too.
+    const extraPicks = [];
+    for (const [name, pk] of Object.entries(P.week?.picks || {})) for (const [c, no] of Object.entries(pk.conf || {})) {
+      const g = P.week.games.find(x => x.fav_no === no || x.dog_no === no); if (!g) continue;
+      const st = gameState(g, live, P.week.research); if (st.state !== 'post') continue;
+      const side = no === g.fav_no ? 'fav' : 'dog', favCovers = st.margin > g.spread;
+      extraPicks.push({ name, season: +(P.league?.season ?? 0), week: P.week.week, conf: +c, side, spread: g.spread, league: g.league || 'CFB', day: g.day || null,
+        home: g.home === side, homeKnown: g.home != null, team: side === 'fav' ? g.fav : g.dog, opp: side === 'fav' ? g.dog : g.fav, covered: (side === 'fav') === favCovers });
+    }
+    const tables = buildTables(hctx, { current: P.league, extraPicks });
+    log('query:', JSON.stringify(spec).slice(0, 300));
+    return runQuery(hctx, tables, spec, P.fam.filter(f => !f.shadow && f.pool));
+  } catch (e) { log('query failed:', e.message); return ''; }
+}
+
 async function parseScenario(P, live, question) {
   if (!HYPO.test(question)) return [];
   const open = P.week.games.filter(g => gameState(g, live, P.week.research).state !== 'post');
@@ -634,10 +664,10 @@ async function tick() {
     const brief = (C ? buildBrief({ week: P.week, live, model: P.week.research, league: P.league, fam: P.fam, sim: C.sim, history, storylines, news: newsBrief }) : 'No picks loaded yet.') + (reports ? '\n\nSCOUTING REPORTS FOR PEOPLE IN THE QUESTION:\n' + reports : '')
       + (teamFacts ? "\n\nTEAM PICK HISTORY (every pick each person made on that team's games; FOR = picked that team, AGAINST = picked its opponent):\n" + teamFacts : '')
       + (boardFacts ? '\n\n' + boardFacts : '') + (splitFacts ? '\n\n' + splitFacts : '');
-    const scenario = C ? await parseScenario(P, live, question) : [];
+    const [scenario, queryFacts] = await Promise.all([C ? parseScenario(P, live, question) : [], planQuery(P, live, hctx, question, asker)]);
     const scen = scenario.length ? scenarioFacts(P, live, C, scenario) : '';
     if (scenario.length) log('scenario:', scenario.map(s => `${s.fav_no}:${s.fav_covers ? 'fav' : 'dog'}`).join(','));
-    prompt = `${asker} asked you in the family chat: "${question}"\n\nRecent chat for context:\n${await recentChat()}\n\nDATA BRIEF (ground truth; use these numbers exactly):\n${brief}${scen ? '\n\n' + scen : ''}${people.filter(n => !P.fam.some(f => f.pool === n)).length ? `\n\nPronouns for ${people.filter(n => !P.fam.some(f => f.pool === n)).join(', ')} are unknown: refer to them only by name, never he/she/his/her.` : ''}\n\nAnswer ${asker}'s question.`;
+    prompt = `${asker} asked you in the family chat: "${question}"\n\nRecent chat for context:\n${await recentChat()}\n\nDATA BRIEF (ground truth; use these numbers exactly):\n${brief}${scen ? '\n\n' + scen : ''}${queryFacts ? `\n\n${queryFacts}\nAnswer the question directly from the COMPUTED lines above (or the DATA CHECK if the data can't answer it): lead with the number, then the league comparison if given, and describe the size of any gap accurately. Only mention someone's pick this week if it's listed under their name in the brief.` : ''}${people.filter(n => !P.fam.some(f => f.pool === n)).length ? `\n\nPronouns for ${people.filter(n => !P.fam.some(f => f.pool === n)).join(', ')} are unknown: refer to them only by name, never he/she/his/her.` : ''}\n\nAnswer ${asker}'s question.`;
     system = QA_SYSTEM(); isQA = true;
     useWeb = WEB_QA && NEWSY.test(question); if (useWeb) { prompt += WEB_RULES; log('web search: on for this question'); }
     used = [];

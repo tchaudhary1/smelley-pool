@@ -19,6 +19,7 @@ function pickRows(archive) {
       const h = byNo.get(no); if (!h || h[0].favCovers == null) continue;
       const [g, side] = h;
       rows.push({ name, week: w.week, conf: +c, side, spread: g.spread, league: g.league || 'CFB', day: g.day || null, home: g.home === side, homeKnown: g.home != null,
+        team: side === 'fav' ? g.fav : g.dog, opp: side === 'fav' ? g.dog : g.fav,
         covered: (side === 'fav') === g.favCovers, pop: sideCount[no] / gameCount[g.fav_no], nGame: gameCount[g.fav_no] });
     }
   }
