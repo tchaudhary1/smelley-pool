@@ -410,9 +410,9 @@ Output the JSON.`, QUERY_GUIDE);
       const st = gameState(g, live, P.week.research); if (st.state !== 'post') continue;
       const side = no === g.fav_no ? 'fav' : 'dog', favCovers = st.margin > g.spread;
       extraPicks.push({ name, season: +(P.league?.season ?? 0), week: P.week.week, conf: +c, side, spread: g.spread, league: g.league || 'CFB', day: g.day || null,
-        home: g.home === side, homeKnown: g.home != null, team: side === 'fav' ? g.fav : g.dog, opp: side === 'fav' ? g.dog : g.fav, covered: (side === 'fav') === favCovers });
+        home: g.home === side, homeKnown: g.home != null, game: g.fav_no, team: side === 'fav' ? g.fav : g.dog, opp: side === 'fav' ? g.dog : g.fav, covered: (side === 'fav') === favCovers });
     }
-    const tables = buildTables(hctx, { current: P.league, extraPicks });
+    const tables = buildTables(hctx, { current: P.league, extraPicks, family: P.fam.filter(f => !f.shadow && f.pool) });
     log('query:', JSON.stringify(spec).slice(0, 300));
     return runQuery(hctx, tables, spec, P.fam.filter(f => !f.shadow && f.pool));
   } catch (e) { log('query failed:', e.message); return ''; }

@@ -16,7 +16,8 @@ export const QUERY_GUIDE = `You turn questions about a family football pool into
 Pool basics: each week every entry makes 10 picks against printed spreads, with confidence 10 (most sure) down to 1; a pick that covers earns its confidence points. "Spot", "slot", "N-pointer" or "their 8s" all mean the confidence number.
 
 Tables and fields:
-- picks: name, season, week, conf (1-10), side ("fav" or "dog" = favorite or underdog), spread (number, e.g. 3.5), league ("NFL" or "CFB" = college), day ("Thursday".."Monday"), home (true = picked the home team), team (the team picked), opp (its opponent), covered (true/false), crowd (share of the league on the same side, 0-1).
+- picks: name, season, week, conf (1-10), side ("fav" or "dog" = favorite or underdog), spread (number, e.g. 3.5), league ("NFL" or "CFB" = college), day ("Thursday".."Monday"), home (true = picked the home team), team (the team picked), opp (its opponent), covered (true/false), crowd (share of the league on the same side, 0-1), game (game number on that week's sheet).
+  Family picks only: family_same (how many OTHER family members made the exact same pick that week, 0-4), family_on_game (family members who picked that game at all, either side, including this one). Example: share of family picks that at least one other family member also made = who "family", share_where {"family_same": {"min": 1}}.
 - weeks: name, season, week, score (points that week), rank (rank that week, 1 = best), field (entries that week).
 - seasons: name, season, total (regular-season points), rank (final regular-season rank), bowls (bowl points), grand (total incl. bowls), grandRank.
 
@@ -37,8 +38,14 @@ If the question is not about pool data (small talk, news, what-ifs about this we
 If the data can't answer it (e.g. picks before 2023, point totals of real games), output answerable false and say what's missing.`;
 
 // ---------------------------------------------------------------- tables
-export function buildTables(ctx, { current = null, extraPicks = [] } = {}) {
+export function buildTables(ctx, { current = null, extraPicks = [], family = [] } = {}) {
   const picks = [...(ctx?.career?.rows || []).map(r => ({ ...r, crowd: r.pop })), ...extraPicks];
+  // Family agreement: for each family pick, how many other family members picked the same side of the
+  // same game that week, and how many picked that game at all (either side).
+  const isFam = new Map(); const fam = n => { if (!isFam.has(n)) isFam.set(n, family.some(f => f.pool === n || samePerson(f.pool, n))); return isFam.get(n); };
+  const byGame = new Map();
+  for (const r of picks) if (fam(r.name)) { const k = `${r.season}|${r.week}|${r.game}`; (byGame.get(k) || byGame.set(k, []).get(k)).push(r); }
+  for (const rs of byGame.values()) for (const r of rs) { r.family_same = rs.filter(o => o !== r && o.side === r.side).length; r.family_on_game = rs.length; }
   const weeks = [], seasons = [];
   for (const [yr, s] of Object.entries(ctx?.seasons || {})) {
     const A = s.archive;
@@ -84,6 +91,10 @@ function stats(table, rows, share) {
     const c = rows.filter(r => r.covered === true).length, graded = rows.filter(r => r.covered != null).length;
     const out = { n, covered: c, cover_rate: graded ? c / graded : null, points: rows.filter(r => r.covered).reduce((s, r) => s + r.conf, 0) };
     if (share) { out.k = share.length; out.share = n ? share.length / n : null; }
+    // The same pick made by several people is several rows; count distinct picks too.
+    const distinct = rs => new Set(rs.map(r => `${r.season}|${r.week}|${r.game}|${r.side}`)).size;
+    out.distinct = distinct(rows); if (share) out.kDistinct = distinct(share);
+    const dc = rows.filter(r => r.covered === true); out.distinctCovered = distinct(dc);
     return out;
   }
   const f = table === 'weeks' ? 'score' : 'total';
@@ -96,7 +107,11 @@ function stats(table, rows, share) {
 function statText(table, s, rows, shareDesc = '') {
   if (!s.n) return 'no matching data';
   const sh = s.share != null ? `; ${s.k} of those ${s.n} are ${shareDesc} (${pc(s.share)})` : '';
-  if (table === 'picks') return `${s.n} picks, covered ${s.covered} (${pc(s.cover_rate)}), ${s.points} points won${sh}`;
+  if (table === 'picks') {
+    const dup = s.distinct < s.n ? ` (counting each person's pick separately; that's ${s.distinct} distinct picks, ${s.distinctCovered} of them covered)` : '';
+    const dupK = s.share != null && s.kDistinct < s.k ? ` (${s.kDistinct} distinct picks)` : '';
+    return `${s.n} picks${dup}, covered ${s.covered} (${pc(s.cover_rate)}), ${s.points} points won${sh}${dupK}`;
+  }
   const f = table === 'weeks' ? 'score' : 'total';
   const when = r => `${table === 'weeks' ? `${r.season} week ${r.week}` : r.season}${r.rank ? `, rank ${r.rank}${r.field ? ` of ${r.field}` : ''}` : ''}`;
   const list = rows.length <= 12 ? `; rows: ${rows.map(r => `${r[f]} (${when(r)})`).join(', ')}` : '';
@@ -137,7 +152,8 @@ export function runQuery(ctx, tables, spec, family = []) {
     const shareDesc = Object.entries(q.share_where || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
     for (const i of items.slice(0, 40)) lines.push(`  ${i.label}: ${statText(table, i.s, i.rows, shareDesc)}`);
     // League baseline for pick questions about specific people or the family.
-    if (table === 'picks' && q.who !== 'league' && q.who !== 'everyone' && !q.group_by) { const b = one('League baseline, same filter', base); lines.push(`  ${b.label}: ${statText(table, b.s, [], shareDesc)}`); }
+    const famOnly = JSON.stringify([q.where, q.share_where]).includes('family_');   // no league equivalent
+    if (table === 'picks' && q.who !== 'league' && q.who !== 'everyone' && !q.group_by && !famOnly) { const b = one('League baseline, same filter', base); lines.push(`  ${b.label}: ${statText(table, b.s, [], shareDesc)}`); }
     const where = Object.entries(q.where || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
     out.push(`${q.label || 'Query'} [${table}${where ? `; ${where}` : ''}${q.share_where ? `; share where ${JSON.stringify(q.share_where)}` : ''}]:\n${lines.join('\n') || '  no matching data'}`);
   }
