@@ -50,7 +50,7 @@ export function coverProb(g, market) {
       target = Math.min(0.65, Math.max(0.35, a / (a + b)));
     }
     mu = solveMu(market.favLine, target, league); source = 'market';
-  } else { mu = g.spread; source = 'none'; }   // no market line: the printed spread, i.e. a coin flip
+  } else return { pFav: 0.5, mu: g.spread, source: 'none' };   // no market line: an honest coin flip
   return { pFav: pCover(mu, g.spread, league), mu, source };
 }
 
