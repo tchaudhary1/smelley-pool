@@ -16,6 +16,19 @@ Do this before any other roadmap item, so a fresh agent (or person) can run, fix
 4. **Backup:** a script that exports every Supabase dataset and the chat to the private repo, run
    weekly (the free plan has no restore points).
 
+## Second priority: odds sheet upload on the Upload tab (agreed Sep 29 2026)
+Today a new week's odds sheet (.doc) is built on the PC (`tools/build-week.mjs`) and pushed by hand.
+Add an "Odds sheet (.doc)" drop box to the Upload tab that does it in the browser:
+1. Read the .doc with SheetJS's file-container reader (already loaded for .xls pick sheets) and run the
+   shared parser (`tools/odds.mjs`, moved to `js/` so the browser and the PC tool use one copy).
+2. Match every game to ESPN (college with all FBS games, case-insensitive team aliases) and show a
+   preview: game count by day and league, unmatched games, the tiebreaker, odd spreads.
+3. "Publish week N": creates the week and switches the current week; never overwrites an existing week.
+4. Fallback: paste the sheet's text if a .doc won't read.
+Test by rebuilding weeks 1–5 from their original files and checking they match what's loaded. About half a day.
+Comes before notifications (after documentation, git and backup).
+
+## Next up (after the first live Saturday, Sep 26 2026)
 
 ### After-action review
 Run `node tools/after-action.mjs 2026-09-26` and go through uptime, response times, errors and
