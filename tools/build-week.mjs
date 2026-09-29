@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import XLSX from 'xlsx';
 import WordExtractor from 'word-extractor';
+import { parseOdds as sharedParseOdds } from './odds.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => {
   if (a.startsWith('--')) acc.push([a.slice(2), arr[i + 1]]); return acc; }, []));
@@ -23,7 +24,13 @@ async function oddsText(file) {
   const doc = await new WordExtractor().extract(file);
   return doc.getBody();
 }
+// The shared parser (tools/odds.mjs) handles the sheets' typos; this one is kept only as a cross-check.
 function parseOdds(text) {
+  const games = sharedParseOdds(text);
+  const tb = text.match(/Tie Breaker[^\n]*?between ([^.]+)\./i);
+  return { games, tiebreakerText: tb ? tb[1].trim() : null };
+}
+function parseOddsOld(text) {
   const games = []; let section = '';
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/ /g, ' ');
@@ -47,7 +54,9 @@ function parseOdds(text) {
 
 // ---------- ESPN matching ----------
 const ALIAS = JSON.parse(fs.readFileSync(new URL('./aliases.json', import.meta.url), 'utf8'));
-const norm = s => s.toLowerCase().replace(/[.'’]/g, '').replace(/&/g, 'and').replace(/\s+/g, ' ').trim();
+const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.'’]/g, '').replace(/&/g, 'and').replace(/\s+/g, ' ').trim();
+// Sheet capitalization flips with the home team (OHIO ST. vs Ohio St.), so aliases match any case.
+const ALIAS_CI = Object.fromEntries(Object.entries(ALIAS).map(([lg, m]) => [lg, Object.fromEntries(Object.entries(m).map(([k, v]) => [k.toLowerCase(), v]))]));
 function teamKeys(t) {
   return [t.location, t.displayName, t.shortDisplayName, t.abbreviation, t.name && `${t.location} ${t.name}`]
     .filter(Boolean).map(norm);
@@ -56,14 +65,14 @@ async function espnEvents(league, dates) {
   const sport = league === 'NFL' ? 'nfl' : 'college-football';
   const out = [];
   for (const d of dates) {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/football/${sport}/scoreboard?dates=${d}&limit=400${league === 'CFB' ? '' : ''}`;
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/${sport}/scoreboard?dates=${d}&limit=400${league === 'CFB' ? '&groups=80' : ''}`;
     const r = await fetch(url); const j = await r.json();
     for (const e of j.events || []) out.push({ e, sport });
   }
   return out;
 }
 function findEvent(events, a, b, league) {
-  const ka = norm(ALIAS[league]?.[a] ?? a), kb = norm(ALIAS[league]?.[b] ?? b);
+  const ka = norm(ALIAS_CI[league]?.[a.toLowerCase()] ?? a), kb = norm(ALIAS_CI[league]?.[b.toLowerCase()] ?? b);
   for (const { e, sport } of events) {
     const cs = e.competitions[0].competitors;
     const hit = k => cs.find(c => teamKeys(c.team).includes(k));
