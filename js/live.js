@@ -64,12 +64,13 @@ function phi(x) {
 export function gameState(g, live, research) {
   const s = g.espn && live?.get(g.espn.id);
   const base = { state: 'pre', detail: '', favScore: null, dogScore: null, margin: null };
-  if (!s) return { ...base, pFav: preP(g, research) };
+  const noMarket = !research?.[g.fav_no] || !!research[g.fav_no].noMarket;   // no DraftKings line: the 50/50 is a placeholder
+  if (!s) return { ...base, pFav: preP(g, research), noMarket };
   const fav = s.teams[g.espn.espnFav], dog = s.teams[g.espn.espnDog];
   const favScore = fav?.score ?? 0, dogScore = dog?.score ?? 0;
   const margin = favScore - dogScore;
   const out = { ...s, state: s.state, favScore, dogScore, margin };
-  if (s.state === 'pre') return { ...out, favScore: null, dogScore: null, margin: null, pFav: preP(g, research) };
+  if (s.state === 'pre') return { ...out, favScore: null, dogScore: null, margin: null, pFav: preP(g, research), noMarket };
   if (s.state === 'post') return { ...out, pFav: margin > g.spread ? 1 : 0, favCovers: margin > g.spread };
   // In progress: remaining-time scaled normal around the current margin.
   const quarters = 4, qLen = g.league === 'NFL' ? 900 : 900;

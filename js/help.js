@@ -147,11 +147,12 @@ export const HELP = [
       <p>A <b>person card</b> has their week (banked, max, expected), season total and percentile, a weekly chart against the league average, and every pick with its live status and chance to cover.</p>` },
   ]},
   { group: 'The numbers', topics: [
-    { id: 'model', title: 'How cover chances are calculated', keys: 'model probability cover chance market draftkings juice vig ratings key numbers', body: `
+    { id: 'model', title: 'How cover chances are calculated', keys: 'model probability cover chance market draftkings juice vig line movement no market line key numbers', body: `
       <p>For every game on the sheet (NFL, Thursday and Friday college, and Saturday), the model:</p>
       <ol><li>takes the current DraftKings line and price from ESPN, and removes the sportsbook's built-in cut ("juice") to get the market's fair view;</li>
-      <li>for college games, nudges that slightly using independent power ratings;</li>
       <li>prices the pool's printed spread against it, giving extra weight to football's common margins (3, 7, 10, 14…).</li></ol>
+      <p>It recalculates on every refresh, so it always uses the latest line; nothing is worked out ahead of time and left to go stale. The pool's spreads are fixed when the sheet is printed while the market keeps moving, and that gap is what shows up in the numbers: game details and the Pick Lab's consensus board show the market line now and how far it has moved since the sheet.</p>
+      <p>If ESPN has no DraftKings line for a game yet (common early in the week, and for some small college games), it says <b>no market line yet</b> and treats the game as a coin flip.</p>
       <p>Once a game kicks off, its pregame line is frozen and the live score takes over. It isn't a crystal ball: even its favorite picks are only about 53–55% to cover.</p>` },
     { id: 'sim', title: 'Win odds, rankings and what-ifs', keys: 'simulation simulated 5000 projected field model league odds rank top 10 top quarter', body: `
       <p>Every refresh, the dashboard plays the rest of the week out 5,000 times with those cover chances (finished games are fixed). From that come each person's family win odds, head-to-head odds, likely score range, league rank and top-10 chances, and the what-ifs.</p>
@@ -246,8 +247,8 @@ export const HELP = [
       <ul><li><b>View</b> opens an archive read-only. <b>Download</b> saves it as a text file.</li>
       <li><b>Delete</b> removes an archive and its reactions permanently. You have to type DELETE, and it can't be undone, so download it first if there's any chance you'll want it.</li>
       <li>Only you can see archives. Family members only ever see the live chat.</li></ul>` },
-    { id: 'newweek', title: 'Starting a new week', keys: 'new week odds doc build push model ratings', body: `
-      <p>The weekly odds sheet (<code>.doc</code>) is loaded from the computer with <code>tools/build-week.mjs</code> and <code>npm run push</code> (see the README), or ask Claude or Watson to do it. Set <code>currentWeek</code> in <code>local-data/settings.json</code> and push it too. Optional: refresh the college power-ratings nudge with <code>tools/model-residuals.mjs</code> and <code>tools/set-model-r.mjs</code>. After that, pick sheets and totals go through the Upload tab.</p>` },
+    { id: 'newweek', title: 'Starting a new week', keys: 'new week odds doc build push', body: `
+      <p>The weekly odds sheet (<code>.doc</code>) is loaded from the computer with <code>tools/build-week.mjs</code> and <code>npm run push</code> (see the README), or ask Claude or Watson to do it. Set <code>currentWeek</code> in <code>local-data/settings.json</code> and push it too. Cover chances come from the live market lines, so there's nothing else to prepare. After that, pick sheets and totals go through the Upload tab.</p>` },
     { id: 'addpeople', title: 'Adding people, and running the Commentator', keys: 'invite add user commentator mute start run', body: `
       <p>Add family members by listing them in <code>users.local.json</code> and running <code>npm run users</code> (an invite email, or a starting password so no email is needed).</p>
       <p><b>The Commentator</b> runs with <code>npm run commentator</code> on the PC and is muted or unmuted with the toggle on the Upload tab. Its log is <code>commentator.log</code>. It only calls Claude when it has something to post: about 1,300 tokens per post, and nothing while idle.</p>` },

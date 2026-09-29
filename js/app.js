@@ -188,6 +188,14 @@ function recompute() {
   S.field = S.league ? fieldModel(S.league, S.week.week) : null;
   S.sim = ents.some(e => e.conf) ? simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field) : null;
 }
+// The latest market line for a game, and how far it has moved from the pool's printed spread.
+// null when ESPN has no DraftKings line (the cover chance is then a 50/50 placeholder).
+function marketNow(g) {
+  const r = S.week.research?.[g.fav_no]; if (!r || r.noMarket || !Number.isFinite(r.line)) return null;
+  const line = `${r.line > 0 ? '−' : '+'}${fmtHalf(Math.abs(r.line))}`, d = r.line - g.spread;
+  const move = d === 0 ? 'same as the sheet' : `${fmtHalf(Math.abs(d))} toward ${d > 0 ? g.fav : g.dog} since the sheet`;
+  return { line, d, move, p: r.p };
+}
 function raceLine(f) {
   const se = S.sim?.entries.find(x => x.key === f.key); if (!se || !se.picked) return '';
   const lg = se.league ? `<div class="meta race"><span>🏟️ League: about #${se.league.weekRank} this week · top-10 ${pct(se.league.pTop10)}</span></div>` : '';
@@ -419,7 +427,7 @@ function leadWatch() {
       return `<div class="verdict ${cls}">${avatar(p.e.f)} ${esc(p.e.f.short)} (${p.conf}): ${txt}</div>`;
     }).join('');
     return `<div class="panel lw clickable" data-game="${g.fav_no}">
-      <div class="hd"><span>${leagueName(g)} · ${esc(st.detail)}</span><span>cover ${pct(st.pFav)} / ${pct(1 - st.pFav)}</span></div>
+      <div class="hd"><span>${leagueName(g)} · ${esc(st.detail)}</span><span>${st.state === 'pre' && st.noMarket ? 'no market line yet' : `cover ${pct(st.pFav)} / ${pct(1 - st.pFav)}`}</span></div>
       <div class="sc"><span style="font-size:14px">${esc(g.fav)} −${fmtHalf(g.spread)}</span><span>${st.favScore}</span></div>
       <div class="sc"><span style="font-size:14px">${esc(g.dog)} +${fmtHalf(g.spread)}</span><span>${st.dogScore}</span></div>
       <div class="muted" style="font-size:12px;margin-bottom:4px">${head}</div>${lines}</div>`;
@@ -707,7 +715,7 @@ const OFF_SCRIPT = 0.3;   // about 2 standard errors for a 10-pick week
 function styleCard(e) {
   const w = weekStyle(e), m = usual(e.f), Z = S.ctx?.career.spread, lbl = S.ctx?.career.label;
   const rows = e.grade.rows.filter(r => r.g);
-  const res = rows.map(r => S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no]).filter(Boolean);
+  const res = rows.map(r => S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no]).filter(x => x && !x.noMarket);
   const bars = STYLE.map(s => { const x = w[s.k], p = x.of ? x.n / x.of : 0, u = m?.[s.k].share, lg = Z?.[s.k]?.mu;
     const off = u != null && x.of >= 8 && Math.abs(p - u) >= OFF_SCRIPT;
     return `<div class="sr-row"><div class="sr-l">${s.label}${off ? `<span class="offscript">${p > u ? 'more' : 'fewer'} than usual</span>` : ''}</div>
@@ -718,7 +726,7 @@ function styleCard(e) {
     <p class="note" style="margin:4px 0 8px">${m ? `Bar = this week · gold tick = usual over ${lbl} (${m.n} picks)` : e.f.shadow ? 'Bar = this week · no past seasons for the shadow card' : S.ctx ? 'Bar = this week · no past seasons on file' : 'Bar = this week · loading past seasons…'}</p>
     <div class="stat-row"><span>Average spread taken</span><span class="num">${fmt1(mean(rows.map(r => r.g.spread)))}</span></div>
     <div class="stat-row"><span>Confidence on underdogs</span><span class="num">${rows.filter(r => r.side === 'dog').reduce((s, r) => s + r.conf, 0)} of 55</span></div>
-    <div class="stat-row"><span>Avg model cover chance <small class="muted">(${res.length} picks)</small></span><span class="num">${res.length ? pct(mean(res.map(r => r.p))) : '–'}</span></div></div>`;
+    <div class="stat-row"><span>Avg cover chance at the latest lines <small class="muted">(${res.length} picks)</small></span><span class="num">${res.length ? pct(mean(res.map(r => r.p))) : '–'}</span></div></div>`;
 }
 
 function viewLab() {
@@ -745,7 +753,7 @@ function insights(E) {
   const counts = {}; for (const r of all) { const k = `${r.g.fav_no}|${r.side}`; (counts[k] ??= []).push(r); }
   const popular = Object.values(counts).sort((a, b) => b.length - a.length || b.reduce((s, r) => s + r.conf, 0) - a.reduce((s, r) => s + r.conf, 0))[0];
   const lonely = all.filter(r => counts[`${r.g.fav_no}|${r.side}`].length === 1 && E.filter(e => !e.f.shadow).length > 1).sort((a, b) => b.conf - a.conf)[0];
-  const withModel = all.map(r => ({ ...r, m: S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no] })).filter(r => r.m);
+  const withModel = all.map(r => ({ ...r, m: S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no] })).filter(r => r.m && !r.m.noMarket);
   const modelFav = [...withModel].sort((a, b) => b.m.p - a.m.p)[0], modelHate = [...withModel].sort((a, b) => a.m.p - b.m.p)[0];
   const early = all.filter(r => new Date(r.g.espn.kickoff) < new Date(S.week.games.find(g => g.day === 'Saturday')?.espn?.kickoff || 0)).sort((a, b) => b.conf - a.conf)[0];
   out.push(card('🎯', 'Boldest confidence', `${esc(top.e.f.short)} put <b>${top.conf}</b> on ${esc(sideName(top.g, top.side))} ${sideSpread(top.g, top.side)}${top.st.state !== 'pre' ? `: currently <b>${top.status}</b>` : ''}.`, top.g.fav_no));
@@ -753,8 +761,8 @@ function insights(E) {
   if (popular && popular.length > 1) out.push(card('🤝', 'Family consensus', `${popular.map(r => esc(r.e.f.short)).join(', ')} all have ${esc(sideName(popular[0].g, popular[0].side))} ${sideSpread(popular[0].g, popular[0].side)}.`, popular[0].g.fav_no));
   if (lonely) out.push(card('🏝️', 'Loneliest pick', `Only ${esc(lonely.e.f.short)} is on ${esc(sideName(lonely.g, lonely.side))} (${lonely.conf} pts).`, lonely.g.fav_no));
   if (early) out.push(card('⏱️', 'Early sweat', `${esc(early.e.f.short)}'s ${early.conf} on ${esc(sideName(early.g, early.side))} goes before Saturday. ${early.st.state === 'post' ? (early.status === 'won' ? 'Already banked.' : 'Already gone. No lead is safe.') : early.st.state === 'in' ? `Live: ${esc(early.st.detail)}.` : ''}`, early.g.fav_no));
-  if (modelFav) out.push(card('📈', 'The model\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover, per the model.`, modelFav.g.fav_no));
-  if (modelHate && modelHate !== modelFav) out.push(card('📉', 'The model disagrees', `${esc(modelHate.e.f.short)}'s ${esc(sideName(modelHate.g, modelHate.side))} ${sideSpread(modelHate.g, modelHate.side)}: only <b>${pct(modelHate.m.p)}</b> by the model. Prove it wrong.`, modelHate.g.fav_no));
+  if (modelFav) out.push(card('📈', 'The market\'s favorite family pick', `${esc(modelFav.e.f.short)}'s ${esc(sideName(modelFav.g, modelFav.side))} ${sideSpread(modelFav.g, modelFav.side)}: <b>${pct(modelFav.m.p)}</b> to cover at the latest line.`, modelFav.g.fav_no));
+  if (modelHate && modelHate !== modelFav) out.push(card('📉', 'The market disagrees', `${esc(modelHate.e.f.short)}'s ${esc(sideName(modelHate.g, modelHate.side))} ${sideSpread(modelHate.g, modelHate.side)}: only <b>${pct(modelHate.m.p)}</b> at the latest line. Prove it wrong.`, modelHate.g.fav_no));
   out.push(...historyStorylines(E));
   return out.join('');
 }
@@ -796,12 +804,12 @@ function consensusTable() {
     .sort((a, b) => (b.on.fav.length + b.on.dog.length) - (a.on.fav.length + a.on.dog.length) || new Date(a.g.espn.kickoff) - new Date(b.g.espn.kickoff));
   if (!games.length) return `<div class="empty">No picks loaded yet.</div>`;
   const r = S.week.research || {};
-  return `<table class="stack"><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Model: favorite covers</th><th>Status</th></tr></thead><tbody>
+  return `<table class="stack"><thead><tr><th class="l">Game</th><th class="l">On the favorite</th><th class="l">On the underdog</th><th>Market now</th><th>Status</th></tr></thead><tbody>
     ${games.map(({ g, on }) => { const st = gameState(g, S.live, S.week.research); const m = r[g.fav_no];
       return `<tr class="row" data-game="${g.fav_no}"><td class="l st-head">${esc(g.fav)} −${fmtHalf(g.spread)} v ${esc(g.dog)}</td>
       <td class="l" data-label="${esc(g.fav)}">${on.fav.map(p => pickChip(p, g, 'fav')).join(' ') || '<span class="muted">–</span>'}</td>
       <td class="l" data-label="${esc(g.dog)}">${on.dog.map(p => pickChip(p, g, 'dog')).join(' ') || '<span class="muted">–</span>'}</td>
-      <td class="num" data-label="Model: favorite covers">${m ? pct(m.p) : '<span class="muted">–</span>'}</td><td data-label="Status">${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
+      <td class="num" data-label="Market now">${(() => { const mk = marketNow(g); return mk ? `${esc(g.fav)} ${mk.line}<br><small class="muted">${esc(mk.move)} · favorite ${pct(mk.p)} to cover</small>` : `<span class="muted">${st.state === 'pre' ? 'no line yet' : '–'}</span>`; })()}</td><td data-label="Status">${st.state === 'pre' ? etTime(g.espn.kickoff) : `${st.favScore}–${st.dogScore} ${esc(st.detail)}`}</td></tr>`; }).join('')}</tbody></table>`;
 }
 function shadowList() {
   const sh = S.week.shadow; const G = GB();
@@ -987,7 +995,7 @@ function openGame(favNo) {
         <h4>The numbers</h4>
         <div class="kv"><div><b>${esc(g.fav)} −${fmtHalf(g.spread)}</b><span>Pool line (fixed)</span></div>
           <div><b>${esc(live?.odds || '–')}</b><span>ESPN / DraftKings now</span></div>
-          ${rf ? `<div><b>${esc(rf.market ?? "–")}</b><span>Market line for ${esc(g.fav)}</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Model: cover chance, favorite / underdog</span></div>` : ''}
+          ${(() => { const mk = marketNow(g); return mk ? `<div><b>${esc(g.fav)} ${mk.line}</b><span>Market line now (${esc(mk.move)})</span></div><div><b>${pct(rf.p)} / ${pct(rd.p)}</b><span>Cover chance at the latest line, favorite / underdog</span></div>` : st.state === 'pre' ? `<div><b>No line yet</b><span>No DraftKings line on ESPN, so cover chances show 50/50</span></div>` : ''; })()}
           <div><b>${stake}</b><span>Family points riding</span></div>
           <div><b>${g.home === 'fav' ? esc(g.fav) : g.home === 'dog' ? esc(g.dog) : '–'}</b><span>Home team${g.espn?.neutral ? ' (neutral site)' : ''}</span></div></div>
         ${gameWhatIf(g)}

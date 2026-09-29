@@ -2,7 +2,7 @@
 //
 //   node tools/build-week.mjs --week 4 --odds inputs/week4/Week_4_Odds.doc \
 //        --picks "inputs/week4/*.xls" --totals inputs/Yearly_totals_through_Week_3.xls \
-//        [--shadow ../path/reconciled_week4_card.csv] [--research side_scores.json]
+//        [--shadow ../path/reconciled_week4_card.csv]
 //
 // Writes local-data/league.json and local-data/week<N>.json. Push them to Supabase with
 // tools/push-data.mjs. Nothing here is committed: local-data/ and inputs/ are gitignored.
