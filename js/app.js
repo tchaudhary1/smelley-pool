@@ -1029,7 +1029,15 @@ function newsHtml(g) {
   return `${mv ? `<p class="news-line">📉 ${esc(mv)}</p>` : ''}
     ${injF || injD ? `<div class="grid two news-inj">${injF ? `<div><div class="news-h">${esc(g.fav)} injuries</div><ul class="sr-list">${injF}</ul></div>` : ''}${injD ? `<div><div class="news-h">${esc(g.dog)} injuries</div><ul class="sr-list">${injD}</ul></div>` : ''}</div>` : ''}
     ${heads ? `<ul class="sr-list news-list">${heads}</ul>` : '<p class="muted" style="font-size:13px">No recent headlines for these teams.</p>'}
-    <p class="note">From ESPN${g.league === 'NFL' ? '' : '. College injury reports aren’t published'}; the Commentator sees these too.</p>`;
+    ${g.league === 'NFL' ? '' : `<p class="news-line">🩹 <a href="${injurySearchUrl(g)}" target="_blank" rel="noopener noreferrer">Injury news for this game ↗</a> <span class="muted">(the schools' own availability reports, where published)</span></p>`}
+    <p class="note">From ESPN${g.league === 'NFL' ? '' : '. ESPN has no college injury lists, so the link above searches the news instead'}; the Commentator sees the ESPN items too.</p>`;
+}
+// College injuries aren't in ESPN's data, and injury-list sites run days behind, so link a news search
+// that surfaces the schools' own weekly availability reports.
+function injurySearchUrl(g) {
+  const name = s => String(s).toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bSt\.$/, 'State').replace(/^N\. /, 'North ').replace(/^S\. /, 'South ').replace(/^W\. /, 'Western ').replace(/^E\. /, 'Eastern ').replace(/^C\. /, 'Central ');
+  const q = `"${name(g.fav)}" "${name(g.dog)}" football injury OR "availability report"`;
+  return `https://news.google.com/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
 }
 
 function openMember(key) {
