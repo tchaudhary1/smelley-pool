@@ -1,4 +1,5 @@
-import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS, HISTORY_SEASONS } from './config.js';
+import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS, HISTORY_SEASONS, VAPID_PUBLIC } from './config.js';
+import { DEFAULT_PREFS, LABELS, mergePrefs } from './notify.js';
 import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
 import { HELP } from './help.js';
@@ -104,19 +105,84 @@ function accountMenu() {
   m.innerHTML = `<div class="who">${esc(S.user.email || fam(S.user.key)?.short || '')}</div>
     <button data-a="theme">${themeNow() === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}</button>
     ${document.documentElement.dataset.theme ? '<button data-a="theme-auto">Match my device\'s light/dark</button>' : ''}
+    <button data-a="notify">🔔 Notifications</button>
     ${db.LOCAL ? '' : '<button data-a="pw">Set or change password</button>'}<button data-a="out">Sign out</button>`;
   document.body.appendChild(m);
   m.onclick = async ev => { const a = ev.target.dataset.a; if (!a) return; m.remove();
     if (a === 'out') { await db.signOut(); location.hash = ''; location.reload(); }
     if (a === 'pw') showPasswordForm();
+    if (a === 'notify') openNotifications();
     if (a === 'theme') setTheme(themeNow() === 'dark' ? 'light' : 'dark');
     if (a === 'theme-auto') setTheme(null); };
   setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target) && ev.target.closest('#meChip') == null) { m.remove(); document.removeEventListener('click', off); } }), 0);
 }
+// ---------- notifications (Web Push; Android and desktop for now) ----------
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+async function openNotifications() {
+  let prefs = mergePrefs(await db.loadNotifyPrefs().catch(() => ({})));
+  if (!prefs.tz || prefs.tz === DEFAULT_PREFS.tz) prefs.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_PREFS.tz;
+  let devices = await db.listDevices().catch(() => []);
+  let state = await db.pushState().catch(() => ({ supported: false }));
+  let msg = '';
+  const sel = (id, opts, val) => `<select id="${id}" class="search">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${String(val) === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+  const chk = (id, on, label) => `<label class="nf-chk"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> ${label}</label>`;
+  const deviceBox = () => {
+    if (!VAPID_PUBLIC) return '<p class="note">Notifications are being set up. Check back soon.</p>';
+    if (isIOS()) return '<p class="note">iPhone and iPad notifications are coming later (they need the home-screen app). Android phones and computers work now.</p>';
+    if (!state.supported) return '<p class="note">This browser can’t show notifications. On Android, use Chrome or Firefox.</p>';
+    if (state.permission === 'denied') return '<p class="note">Notifications are blocked for this site. Open the browser’s site settings (the icon next to the address), allow notifications, then come back.</p>';
+    return state.subscribed
+      ? `<p>✅ On for this device.</p><div class="nf-btns"><button class="btn gold" id="nfTest">Send me a test</button><button class="btn ghost" id="nfOff">Turn off on this device</button></div>`
+      : `<p>Off for this device.</p><button class="btn gold" id="nfOn">Turn on notifications</button>`;
+  };
+  const draw = () => `${modalHead('Notifications', 'What should buzz your phone?')}
+    <div class="mb nf">
+      <h4>This device</h4>${deviceBox()}<p class="nf-msg" id="nfMsg">${esc(msg)}</p>
+      ${devices.length ? `<h4>Your devices</h4><ul class="sr-list">${devices.map(d => `<li>${esc(d.label || 'Device')} <span class="muted">· added ${esc(etDay(d.created_at))}${d.endpoint === state.endpoint ? ' · this one' : ''}</span> <button class="btn ghost small" data-rm="${esc(d.endpoint)}">Remove</button></li>`).join('')}</ul>` : ''}
+      <h4>Smack Talk</h4>${sel('nfChat', LABELS.chat, prefs.chat)}
+      <h4>The Commentator</h4>${sel('nfBot', LABELS.commentator, prefs.commentator)}
+      <h4>My picks</h4>${chk('nfFinal', prefs.picks.final, 'Final result of each pick')}${chk('nfFlips', prefs.picks.flips, 'Cover flips (second half on)')}${chk('nfSweats', prefs.picks.sweats, 'Late sweats (last 6 minutes, within a score of the number)')}
+      <h4>Games I follow</h4><p class="note" style="margin-top:0">Tap 🔔 Follow on any game card.</p>${sel('nfFollow', LABELS.follows, prefs.follows)}
+      <h4>The family race</h4>${chk('nfWeek', prefs.family.myWeek, 'My week’s total when my last game ends')}${chk('nfLead', prefs.family.lead, 'When the family lead changes hands (points banked)')}
+      <h4>How much</h4>${sel('nfCap', LABELS.cap, prefs.cap)}
+      ${chk('nfQuiet', prefs.quiet.on, 'Quiet hours')} <span class="nf-quiet"><input type="time" id="nfQs" value="${esc(prefs.quiet.start)}"> to <input type="time" id="nfQe" value="${esc(prefs.quiet.end)}"></span>
+      ${chk('nfLock', prefs.lock === 'generic', 'Hide details on the lock screen ("New activity", no names or scores)')}
+      <p class="note">Saved as you change them, for all your devices. Notifications during quiet hours are skipped, not saved for later.</p>
+    </div>`;
+  const read = () => ({ ...prefs, chat: $('#nfChat').value, commentator: $('#nfBot').value, follows: $('#nfFollow').value, cap: +$('#nfCap').value,
+    picks: { final: $('#nfFinal').checked, flips: $('#nfFlips').checked, sweats: $('#nfSweats').checked },
+    family: { myWeek: $('#nfWeek').checked, lead: $('#nfLead').checked },
+    quiet: { on: $('#nfQuiet').checked, start: $('#nfQs').value || '23:00', end: $('#nfQe').value || '08:00' },
+    lock: $('#nfLock').checked ? 'generic' : 'full' });
+  const redraw = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };
+  const say = t => { msg = t; const el = $('#nfMsg'); if (el) el.textContent = t; };
+  const mount = m => {
+    $$('select, input', m).forEach(el => el.onchange = async () => { prefs = read(); try { await db.saveNotifyPrefs(prefs); say('Saved.'); } catch (e) { say('Couldn’t save: ' + e.message); } });
+    const on = $('#nfOn', m), off = $('#nfOff', m), test = $('#nfTest', m);
+    if (on) on.onclick = async () => { on.disabled = true; say('Asking the browser…');
+      try { await db.enablePush(VAPID_PUBLIC); await db.saveNotifyPrefs(prefs); state = await db.pushState(); devices = await db.listDevices(); msg = 'Turned on. Try "Send me a test".'; }
+      catch (e) { msg = e.message; state = await db.pushState().catch(() => state); } redraw(); };
+    if (off) off.onclick = async () => { await db.disablePush().catch(() => {}); state = await db.pushState(); devices = await db.listDevices(); msg = 'Turned off for this device.'; redraw(); };
+    if (test) test.onclick = async () => { test.disabled = true; say('Sending…');
+      try { const r = await db.sendTestPush(); say(r.status === 'sent' ? `Sent to ${r.devices} device${r.devices === 1 ? '' : 's'}. It should arrive in a few seconds.` : `Not sent (${r.status}).`); }
+      catch (e) { say('Couldn’t send: ' + e.message); } test.disabled = false; };
+    $$('[data-rm]', m).forEach(b => b.onclick = async () => { await db.removeDevice(b.dataset.rm); if (b.dataset.rm === state.endpoint) await db.disablePush().catch(() => {}); devices = await db.listDevices(); state = await db.pushState(); redraw(); });
+  };
+  openModal(draw(), { onMount: mount });
+}
+// The service worker asks the page to save a replaced subscription, or to open a screen.
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', async e => {
+  if (e.data?.type === 'resubscribe' && VAPID_PUBLIC && Notification.permission === 'granted') db.enablePush(VAPID_PUBLIC).catch(() => {});
+  if (e.data?.type === 'open' && e.data.url) location.href = e.data.url;
+});
+// Tapping a chat notification opens #talk; switch tabs when only the hash changes.
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (S.started && h && h !== S.tab && ['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(h)) { go(h); } });
+
 async function start() {
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   if (S.started) return;   // e.g. returning from "change password"
   S.started = true;
+  if (!db.LOCAL) db.listFollows().then(f => { S.follows = new Set(f); }).catch(() => {});
   const me = fam(S.user.key);
   $('#meChip').innerHTML = `${avatar(me)} ${esc(me?.short)} <span class="so" style="opacity:.6">▾</span>`;
   $('#meChip').title = 'Account';
@@ -992,6 +1058,7 @@ function openGame(favNo) {
           <div class="gauge"><div class="zero"></div><div class="needle" style="left:${pos}%"></div></div>
           <div class="gauge-l"><span>◀ ${esc(g.dog)} covering</span><span>on the number</span><span>${esc(g.fav)} covering ▶</span></div>
           ${safe ? `<p style="margin:8px 0 0">${safe}</p>` : ''}${live?.situation?.last ? `<p class="note">Last play: ${esc(live.situation.last)}</p>` : ''}`}
+        ${g.espn?.id && !db.LOCAL ? `<p class="nf-follow"><button class="btn ghost small" data-follow>${S.follows?.has(g.espn.id) ? '🔔 Following this game' : '🔕 Follow this game'}</button> <span class="muted">${S.follows?.has(g.espn.id) ? 'tap to stop' : 'get its updates on your phone'}</span></p>` : ''}
         <h4>The numbers</h4>
         <div class="kv"><div><b>${esc(g.fav)} −${fmtHalf(g.spread)}</b><span>Pool line (fixed)</span></div>
           <div><b>${esc(live?.odds || '–')}</b><span>ESPN / DraftKings now</span></div>
@@ -1006,7 +1073,10 @@ function openGame(favNo) {
         ${espnUrl ? `<p class="note"><a href="${espnUrl}" target="_blank" rel="noopener">Open ESPN gamecast ↗</a> · ${esc(g.espn.venue || '')}</p>` : ''}
       </div>`;
   };
-  const mount = m => { bindReactions(m, () => { m.innerHTML = draw(); mount(m); }); };
+  const mount = m => { bindReactions(m, () => { m.innerHTML = draw(); mount(m); });
+    const fb = $('[data-follow]', m); if (fb) fb.onclick = async () => { const on = !S.follows?.has(g.espn.id); fb.disabled = true;
+      try { await db.setFollow(g.espn.id, S.week.week, on); S.follows ??= new Set(); on ? S.follows.add(g.espn.id) : S.follows.delete(g.espn.id); } catch { /* keep the old state */ }
+      m.innerHTML = draw(); mount(m); }; };
   openModal(draw(), { onMount: mount });
   loadNews(g);
   modalRefresher = () => { const m = $('.modal'); if (m) { m.innerHTML = draw(); mount(m); } };

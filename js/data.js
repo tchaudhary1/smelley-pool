@@ -233,3 +233,77 @@ export async function subscribe(onChange, onTyping = () => {}) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, onChange)
     .on('broadcast', { event: 'typing' }, ({ payload }) => onTyping(payload || {})).subscribe();
 }
+
+// ---------- phone notifications (Web Push) ----------
+// Works in Chrome and Firefox on Android and on desktop browsers. iPhone needs the home-screen app (later).
+const b64ToBytes = s => { const p = '='.repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+const deviceLabel = () => { const ua = navigator.userAgent;
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'Device';
+  const br = /Firefox\//.test(ua) ? 'Firefox' : /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  return `${os} · ${br}`; };
+export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function swReg() { return navigator.serviceWorker.getRegistration() || navigator.serviceWorker.register('sw.js'); }
+// { supported, permission, subscribed, endpoint }
+export async function pushState() {
+  if (!pushSupported()) return { supported: false };
+  const reg = await swReg(); const sub = reg && await reg.pushManager.getSubscription();
+  return { supported: true, permission: Notification.permission, subscribed: !!sub, endpoint: sub?.endpoint || null };
+}
+// Must be called from a tap (browsers only ask for permission in response to one).
+export async function enablePush(vapidPublic) {
+  if (!pushSupported()) throw new Error('This browser can’t show notifications.');
+  if (LOCAL) throw new Error('Notifications only work on the real site, not the local preview.');
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Notifications are blocked for this site. Allow them in the browser’s site settings, then try again.' : 'Permission wasn’t given.');
+  const reg = await swReg(); await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  // A subscription made with an old key won't work: replace it.
+  const want = b64ToBytes(vapidPublic);
+  const key = sub?.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+  if (sub && key && (key.length !== want.length || key.some((v, i) => v !== want[i]))) { await sub.unsubscribe(); sub = null; }
+  sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: want });
+  await saveSubscription(sub);
+  return sub.endpoint;
+}
+export async function saveSubscription(sub) {
+  const j = sub.toJSON(); const c = await client(); const { data } = await c.auth.getUser();
+  const { error } = await c.from('push_subscriptions').upsert({ endpoint: j.endpoint, user_id: data.user.id, p256dh: j.keys.p256dh, auth: j.keys.auth, label: deviceLabel(), fails: 0 }, { onConflict: 'endpoint' });
+  if (error) throw error;
+}
+export async function disablePush() {
+  const reg = await swReg(); const sub = reg && await reg.pushManager.getSubscription();
+  if (sub) { await (await client()).from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+}
+export async function listDevices() {
+  if (LOCAL) return [];
+  const { data } = await (await client()).from('push_subscriptions').select('endpoint, label, created_at, last_ok').order('created_at');
+  return data || [];
+}
+export async function removeDevice(endpoint) { await (await client()).from('push_subscriptions').delete().eq('endpoint', endpoint); }
+export async function loadNotifyPrefs() {
+  if (LOCAL) return store.get('sp.notifyPrefs', {});
+  const { data } = await (await client()).from('notification_prefs').select('prefs').maybeSingle();
+  return data?.prefs || {};
+}
+export async function saveNotifyPrefs(prefs) {
+  if (LOCAL) { store.set('sp.notifyPrefs', prefs); return; }
+  const c = await client(); const { data } = await c.auth.getUser();
+  const { error } = await c.from('notification_prefs').upsert({ user_id: data.user.id, prefs, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+export async function sendTestPush() {
+  const c = await client(); const { data, error } = await c.functions.invoke('push-test', { body: {} });
+  if (error) throw error; return data;
+}
+// Games with the 🔔 on (ESPN event ids).
+export async function listFollows() {
+  if (LOCAL) return store.get('sp.follows', []);
+  const { data } = await (await client()).from('game_follows').select('game_id');
+  return (data || []).map(r => r.game_id);
+}
+export async function setFollow(gameId, week, on) {
+  if (LOCAL) { const f = new Set(store.get('sp.follows', [])); on ? f.add(gameId) : f.delete(gameId); store.set('sp.follows', [...f]); return; }
+  const c = await client();
+  if (on) { const { data } = await c.auth.getUser(); const { error } = await c.from('game_follows').upsert({ user_id: data.user.id, game_id: gameId, week }); if (error) throw error; }
+  else await c.from('game_follows').delete().eq('game_id', gameId);
+}

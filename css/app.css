@@ -553,3 +553,15 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 /* Two-letter avatars (Jamie "JS", Joe "JP") */
 .av.two { font-size: 11px; letter-spacing: -0.02em; }
 .pk .av.two, .lw .verdict .av.two, .me-chip .av.two { font-size: 8px; }
+
+/* Notifications screen */
+.nf h4 { margin: 16px 0 6px; }
+.nf select.search { width: 100%; max-width: 420px; }
+.nf-chk { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; font-size: 14px; line-height: 1.4; }
+.nf-chk input { margin-top: 3px; }
+.nf-quiet { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 6px 26px; font-size: 14px; }
+.nf-quiet input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.nf-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.nf-msg { min-height: 1.2em; font-size: 13.5px; color: var(--ink-2); margin: 8px 0 0; }
+.nf .sr-list .btn { margin-left: 6px; }
+.nf-follow { margin: 0 0 10px; font-size: 13px; }

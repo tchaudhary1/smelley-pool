@@ -29,3 +29,6 @@ export const BOT = { key: 'commentator', short: 'The Commentator', initial: '�
 export const MOTTO = 'NULLUM PRAESIDIUM SECURUM EST';
 export const MOTTO_EN = 'No lead is safe';
 export const REACTIONS = ['🔥', '😂', '💀', '🍑', '🦬', '🚂', '🙏', '👀'];
+
+// Web Push public key (safe to publish; the private half is a Supabase secret). Empty until set up.
+export const VAPID_PUBLIC = '';

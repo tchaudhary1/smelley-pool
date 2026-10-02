@@ -17,6 +17,18 @@ export const HELP = [
       <p><b>iPhone (Safari):</b> open the site, tap the Share button (square with an arrow), then <b>Add to Home Screen</b>.</p>
       <p><b>Android (Chrome or Firefox):</b> open the site, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install</b>).</p>
       <p>It then opens like an app, with the crest as its icon.</p>` },
+    { id: 'notifications', title: 'Phone notifications', keys: 'notifications notify alerts push buzz phone android chrome firefox mentions follow bell quiet hours mute', body: `
+      <p>The dashboard can buzz your phone. <b>Android</b> (Chrome or Firefox) and computers work now; <b>iPhone is coming later</b>.</p>
+      <p><b>Turn it on:</b> tap your name (top right) → <b>🔔 Notifications</b> → <b>Turn on notifications</b>, and allow it when the browser asks. Then tap <b>Send me a test</b>. Do this on each phone or computer you want buzzed.</p>
+      <p><b>Choose what you get</b> on the same screen (it starts with the quiet choices):</p>
+      <ul><li><b>Smack Talk:</b> off, only when someone @mentions or replies to you, or every message.</li>
+      <li><b>The Commentator:</b> off, only when it asks or answers you, plus the weekend preview and weekly recap, or every post.</li>
+      <li><b>My picks:</b> the final result of each pick, cover flips in the second half, late sweats in the last 6 minutes.</li>
+      <li><b>Games I follow:</b> open any game and tap <b>🔕 Follow this game</b>; choose final score only, cover changes, or every score.</li>
+      <li><b>The family race:</b> your week's total when your last game ends, and when the family lead changes hands.</li>
+      <li><b>How much:</b> an hourly limit, quiet hours (alerts then are skipped), and hiding details on the lock screen.</li></ul>
+      <p>Game alerts for the same game replace each other instead of piling up, and chat collapses into one "new messages" notification. Tapping a notification opens the right screen. These come from the dashboard's server, so they work even when Tarun's PC is off (the Commentator's own posts still need it).</p>
+      <p><b>Not getting them?</b> Check the browser is allowed to notify (Android Settings → Apps → Chrome or Firefox → Notifications), that battery saver isn't blocking it, and try the test button again.</p>` },
     { id: 'getting-around', title: 'Getting around (tabs, arrows, cards)', keys: 'navigation tabs arrows scroll swipe menu cards tap mobile phone', body: `
       <ul><li>The tabs run across the top: <b>Game Day, Standings, Head to Head, Pick Lab, Smack Talk, History, Help</b> (plus <b>Upload</b> for Tarun). On a phone they don't all fit: swipe the tab bar, or tap the <b>‹ ›</b> arrows that appear at its edges when more tabs are hidden that way.</li>
       <li>Almost everything opens a <b>card</b> with more detail: family cards, games, standings rows, head-to-head squares, what-ifs, charts, even the crest. On a phone, cards slide up from the bottom. Close with ×, by tapping outside, or with the Esc key.</li>

@@ -568,9 +568,14 @@ const warn0 = console.warn;
 console.warn = (...a) => { if (String(a[0]).startsWith('ESPN fetch failed')) { TICK.espnFail = (TICK.espnFail || 0) + 1; TOTALS.espnFail++; } warn0(...a); };
 const beat = extra => { if (DRY) return; try { fs.writeFileSync(path.join(MON_DIR, 'heartbeat.json'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...TOTALS, ...extra }, null, 1)); } catch { /* ignore */ } };
 
-async function post(body, week, game) {
-  if (DRY) { log('DRY-RUN would post:', body); return null; }
-  const { data, error } = await sb.from('messages').insert({ body, week, game_no: game ?? null }).select('id').single();
+// kind and meta.to drive phone notifications (js/notify.js): preview/recap are "big" posts, and a
+// question or answer addressed to someone notifies them.
+async function post(body, week, game, { kind = null, to = [] } = {}) {
+  if (DRY) { log('DRY-RUN would post:', body, kind ? `[${kind}${to.length ? ' to ' + to.join(',') : ''}]` : ''); return null; }
+  const row = { body, week, game_no: game ?? null, ...(kind ? { kind } : {}), ...(to.length ? { meta: { to } } : {}) };
+  let { data, error } = await sb.from('messages').insert(row).select('id').single();
+  // Before the notifications SQL runs there are no kind/meta columns: post without them.
+  if (error && /kind|meta/.test(error.message || '')) ({ data, error } = await sb.from('messages').insert({ body, week, game_no: game ?? null }).select('id').single());
   if (error) throw error;
   log('posted:', body);
   return data.id;
@@ -622,7 +627,7 @@ async function tick() {
   if (!ment.length && now - lastPost < MIN_GAP_S * 1e3) return 45;
 
   // Mentions first, then the most important game events (bundled into one message).
-  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false, askPeople = [], useWeb = false, ask = null;
+  let prompt, gameNo = null, used = [], system = SYSTEM, isPreview = false, isQA = false, askPeople = [], useWeb = false, ask = null, replyTo = null;
   const pvE = fresh.find(e => e.preview), rcE = fresh.find(e => e.recap);
   if (pvE && !ment.length) {
     prompt = `Write the WEEKEND KICKOFF PREVIEW for the family chat: hype everyone up for the weekend's storylines. Cover the family race, each of us vs the league, and the family vs the league, plus the must-watch games by day. Picks are already locked in, so don't tell anyone to make or change picks. Keep 'this week' and 'season' numbers exactly as labeled. Use only these facts:\n${pvE.facts}\n\nWrite the message.`;
@@ -637,6 +642,7 @@ async function tick() {
     const m = ment.at(-1);
     const { data: prof } = m.testAs ? { data: { first_name: m.testAs } } : await sb.from('profiles').select('first_name').eq('user_id', m.user_id).maybeSingle();
     const asker = FAMILY.find(f => f.key === prof?.first_name)?.short || 'Someone';
+    replyTo = prof?.first_name || null;
     const question = m.body.replace(/@commentator\b/ig, '').trim();
     const hctx = Object.keys(ARCHIVES).length ? buildContext({ archives: ARCHIVES, league: P.league }) : null;
     const history = hctx ? { summary: historySummary(hctx, P.fam) } : null;
@@ -704,7 +710,7 @@ async function tick() {
     }
     if (!text) throw new Error('empty reply');
     if (!mottoOk && MOTTO_RE.test(text)) { log('rewriting: motto used too soon'); rewrites++; text = await draft(`${prompt}\n\nYour last draft was:\n${text}\n\nRewrite it with the same content but without the family motto, "no lead is safe" or the crest.`); }
-    const postedId = await post(text, P.week.week, gameNo);
+    const postedId = await post(text, P.week.week, gameNo, { kind: isQA ? 'answer' : kind === 'preview' || kind === 'recap' ? kind : ask ? 'ask' : 'play', to: isQA ? [replyTo].filter(Boolean) : ask?.who || [] });
     if (MOTTO_RE.test(text) && !DRY) state.lastMotto = Date.now();
     (isQA ? state.qa : state.posts).push(Date.now());
     if (ask && !DRY) { (state.asks ??= []).push({ t: Date.now(), who: ask.who, msgId: postedId }); metric('ask', { to: ask.names, event: ask.event, msgId: postedId }); }
