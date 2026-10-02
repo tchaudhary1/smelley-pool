@@ -1,13 +1,15 @@
 // Screenshot a page in headless Edge after waiting in real time, so data fetched after load
 // (news, history) is on screen. Uses the DevTools protocol over Node's built-in WebSocket.
-//   node tools/shot.mjs <url> <out.png> [width=500] [height=3000] [waitMs=8000]
+//   node tools/shot.mjs <url> <out.png> [width=500] [height=3000] [waitMs=8000] [light|dark]
+// Always light mode unless asked: screenshots go into instructions and emails for the family, and
+// this PC's own dark mode would otherwise leak into them.
 // Output is at 2x device scale, like the other email screenshots.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const [url, out, W = '500', H = '3000', WAIT = '8000'] = process.argv.slice(2);
+const [url, out, W = '500', H = '3000', WAIT = '8000', SCHEME = 'light'] = process.argv.slice(2);
 if (!url || !out) throw new Error('usage: node tools/shot.mjs <url> <out.png> [width] [height] [waitMs]');
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const port = 9300 + Math.floor(Math.random() * 500);
@@ -21,6 +23,7 @@ try {
   let id = 0; const pending = new Map();
   ws.addEventListener('message', e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: SCHEME === 'dark' ? 'dark' : 'light' }] });
   await send('Emulation.setDeviceMetricsOverride', { width: +W, height: +H, deviceScaleFactor: 2, mobile: false });
   // Some feeds (ESPN) refuse the "HeadlessEdg" user agent; present as ordinary Edge.
   const { result: v } = await send('Browser.getVersion');
