@@ -1,6 +1,6 @@
 # Notifications plan (Android first, then iOS)
 
-Status: proposed Sep 28 2026, not started. Each stage ends in a gate: Tarun signs off before the next
+Status: Stages 0–3 built and deployed for Android/desktop on Oct 2 2026 (tag pre-notifications-2026-10-02 is the version before). Gates 1–3 (phone tests, a game day) are next; iOS (Stage 5) later. Each stage ends in a gate: Tarun signs off before the next
 stage begins. The documentation / git / backup item at the top of ROADMAP.md comes first.
 
 ## Goal

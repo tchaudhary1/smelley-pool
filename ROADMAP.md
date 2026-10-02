@@ -49,7 +49,7 @@ Plan: run it as a service on Tarun's server (auto-start, restart on crash), keep
 heartbeat and watchdog, and have the watchdog restart it automatically.
 
 ### Push notifications (opt-in, per device)
-**Superseded by the staged plan in [docs/NOTIFICATIONS_PLAN.md](docs/NOTIFICATIONS_PLAN.md)** (Sep 28 2026:
+**Built for Android/desktop Oct 2 2026; testing on Tarun's (Firefox) and Jamie's (Chrome) phones. iPhone later.** Plan: **[docs/NOTIFICATIONS_PLAN.md](docs/NOTIFICATIONS_PLAN.md)** (Sep 28 2026:
 Android first, iOS after; server-side senders so alerts don't depend on the PC). Original notes below.
 
 Web Push through the existing service worker (`sw.js`). Android and desktop browsers work from the
