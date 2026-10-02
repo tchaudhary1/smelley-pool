@@ -31,4 +31,4 @@ export const MOTTO_EN = 'No lead is safe';
 export const REACTIONS = ['🔥', '😂', '💀', '🍑', '🦬', '🚂', '🙏', '👀'];
 
 // Web Push public key (safe to publish; the private half is a Supabase secret). Empty until set up.
-export const VAPID_PUBLIC = '';
+export const VAPID_PUBLIC = 'BBQ4c_xE7C71LZn1CFAVQLuDYn0TVCUXUXUpd6FyB2d0A5DpHbFbO1EY1EhY-zGmrqaagUFiBOrjW5WvV4k5_Xg';
