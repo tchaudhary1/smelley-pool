@@ -13,3 +13,4 @@ monitor/
 *.local.md
 backups/
 supabase/functions/_shared/site/
+supabase/.temp/
