@@ -565,3 +565,6 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 .nf-msg { min-height: 1.2em; font-size: 13.5px; color: var(--ink-2); margin: 8px 0 0; }
 .nf .sr-list .btn { margin-left: 6px; }
 .nf-follow { margin: 0 0 10px; font-size: 13px; }
+.code-row .btn { margin-top: 10px; width: 100%; }
+.nf-steps { margin: 6px 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+.nf-steps li { margin: 4px 0; }

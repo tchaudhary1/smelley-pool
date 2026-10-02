@@ -24,7 +24,13 @@ async function init() {
   }
   if (db.LOCAL) { $('#previewBanner').classList.remove('hidden'); $('#lname').type = 'text'; $('#lname').placeholder = 'jamie'; }
   $('#loginForm').addEventListener('submit', onLogin);
-  $('#magicBtn').onclick = () => emailAction(db.sendSignInLink, 'Check your email for a sign-in link. It opens this page already signed in.');
+  $('#magicBtn').onclick = async () => { await emailAction(db.sendSignInLink, 'Check your email. Tap the link in it, or type its 6-digit code below (use the code if you’re in the Home Screen app).');
+    if (!$('#loginOk').classList.contains('hidden')) { $('#codeRow').classList.remove('hidden'); $('#lcode').focus(); } };
+  $('#codeBtn').onclick = async () => { $('#loginErr').textContent = '';
+    const code = $('#lcode').value.replace(/\D/g, ''); if (code.length !== 6) { $('#loginErr').textContent = 'The code is 6 digits.'; return; }
+    try { S.user = await db.signInWithCode($('#lname').value, code); $('#lcode').value = ''; $('#codeRow').classList.add('hidden'); $('#loginOk').classList.add('hidden'); start(); }
+    catch (err) { $('#loginErr').textContent = err.message; } };
+  $('#lcode').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#codeBtn').click(); } });
   $('#forgotBtn').onclick = () => emailAction(db.sendPasswordReset, 'Check your email for a link to choose a new password.');
   $('#pwForm').addEventListener('submit', onSetPassword);
   $('#pwSkip').onclick = () => { $('#pwForm').classList.add('hidden'); S.user ? start() : showLogin(); };
@@ -117,7 +123,10 @@ function accountMenu() {
   setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target) && ev.target.closest('#meChip') == null) { m.remove(); document.removeEventListener('click', off); } }), 0);
 }
 // ---------- notifications (Web Push; Android and desktop for now) ----------
-const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS reports a Mac
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// iPhone/iPad: notifications only work from the Home Screen app (iOS 16.4+), which keeps its own sign-in.
+const IOS_STEPS = `<ol class="nf-steps"><li>In <b>Safari</b>, tap the <b>Share</b> button (the square with an arrow ↑).</li><li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Close Safari and open <b>Smelley Pool</b> from your Home Screen.</li><li>Sign in there: type your email, tap <b>Email me a sign-in link or code</b>, and type the <b>6-digit code</b> from the email (or use your password).</li><li>Tap your name (top right) → <b>🔔 Notifications</b> → <b>Turn on notifications</b>, and tap <b>Allow</b>.</li></ol>`;
 async function openNotifications() {
   let prefs = mergePrefs(await db.loadNotifyPrefs().catch(() => ({})));
   if (!prefs.tz || prefs.tz === DEFAULT_PREFS.tz) prefs.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_PREFS.tz;
@@ -128,9 +137,10 @@ async function openNotifications() {
   const chk = (id, on, label) => `<label class="nf-chk"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> ${label}</label>`;
   const deviceBox = () => {
     if (!VAPID_PUBLIC) return '<p class="note">Notifications are being set up. Check back soon.</p>';
-    if (isIOS()) return '<p class="note">iPhone and iPad notifications are coming later (they need the home-screen app). Android phones and computers work now.</p>';
+    if (isIOS() && !isStandalone()) return `<p>On iPhone, notifications work from the Smelley Pool app on your Home Screen. It takes a minute:</p>${IOS_STEPS}`;
+    if (isIOS() && !state.supported) return '<p class="note">This iPhone needs iOS 16.4 or newer for notifications: Settings → General → Software Update.</p>';
     if (!state.supported) return '<p class="note">This browser can’t show notifications. On Android, use Chrome or Firefox.</p>';
-    if (state.permission === 'denied') return '<p class="note">Notifications are blocked for this site. Open the browser’s site settings (the icon next to the address), allow notifications, then come back.</p>';
+    if (state.permission === 'denied') return isIOS() ? '<p class="note">Notifications are turned off for Smelley Pool. Open the iPhone’s Settings → Notifications → Smelley Pool, turn on Allow Notifications, then come back.</p>' : '<p class="note">Notifications are blocked for this site. Open the browser’s site settings (the icon next to the address), allow notifications, then come back.</p>';
     return state.subscribed
       ? `<p>✅ On for this device.</p><div class="nf-btns"><button class="btn gold" id="nfTest">Send me a test</button><button class="btn ghost" id="nfOff">Turn off on this device</button></div>`
       : `<p>Off for this device.</p><button class="btn gold" id="nfOn">Turn on notifications</button>`;
@@ -415,6 +425,8 @@ function updateUnread() {
   if (n > (S.unreadN || 0)) { btn.classList.remove('pulse'); void btn.offsetWidth; btn.classList.add('pulse'); }   // restart the pulse
   S.unreadN = n;
   document.title = n ? `(${n}) Smelley Pool` : 'Smelley Pool';
+  // Unread count on the app icon (installed app on iPhone, Android and desktop, where supported).
+  try { if ('setAppBadge' in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch?.(() => {}); } catch { /* not supported */ }
   // On a phone the tab may be scrolled out of view: put a dot on the arrow that points to it.
   const nav = $('#tabs'), mid = btn.offsetLeft + btn.offsetWidth / 2;
   $('#tabL')?.classList.toggle('has-new', n > 0 && mid < nav.scrollLeft + 20);

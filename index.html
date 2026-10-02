@@ -34,11 +34,16 @@
         <input id="lpass" name="password" type="password" autocomplete="current-password">
         <button class="btn" type="submit">Enter the pool</button>
         <div class="alt-actions">
-          <button type="button" class="linkish" id="magicBtn">Email me a sign-in link</button>
+          <button type="button" class="linkish" id="magicBtn">Email me a sign-in link or code</button>
           <button type="button" class="linkish" id="forgotBtn">Forgot password?</button>
         </div>
         <div class="err" id="loginErr" role="alert"></div>
         <div class="ok hidden" id="loginOk" role="status"></div>
+        <div class="code-row hidden" id="codeRow">
+          <label for="lcode">Or type the 6-digit code from the email</label>
+          <input id="lcode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+          <button type="button" class="btn" id="codeBtn">Sign in with the code</button>
+        </div>
         <div class="preview-banner hidden" id="previewBanner">Preview mode: type a family first name (e.g. jamie) and any password. Chat stays in this browser.</div>
       </form>
       <form class="login-form hidden" id="pwForm">

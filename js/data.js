@@ -70,6 +70,15 @@ export async function sendSignInLink(email) {
   const { error } = await (await client()).auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false, emailRedirectTo: returnUrl() } });
   if (error) throw new Error(friendly(error));
 }
+// The emailed 6-digit code: signs in right here, which is what the iPhone Home Screen app needs
+// (the email's link would open Safari instead).
+export async function signInWithCode(email, code) {
+  if (LOCAL) throw new Error('Sign-in codes need the live site.');
+  const c = await client();
+  const { data, error } = await c.auth.verifyOtp({ email: email.trim(), token: code, type: 'email' });
+  if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code didn’t work. It may have expired: tap "Email me a sign-in link or code" for a new one.' : friendly(error));
+  return profileFor(data.user);
+}
 export async function sendPasswordReset(email) {
   if (LOCAL) throw new Error('Password resets need the live site.');
   const { error } = await (await client()).auth.resetPasswordForEmail(email.trim(), { redirectTo: returnUrl() });

@@ -16,6 +16,7 @@ self.addEventListener('push', e => {
       const n = (open[0]?.data?.count || 1) + (open.length ? 1 : 0);
       if (n > 1) body = `${n} new · ${body}`;
       d.count = open.length ? n : 1;
+      try { await self.navigator.setAppBadge?.(d.count); } catch { /* no icon badges here */ }
     }
     await self.registration.showNotification(d.title || 'Smelley Pool', {
       body, tag, renotify: true,
