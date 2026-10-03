@@ -6,6 +6,15 @@ import { sb, json, authorized, audience, deliver } from '../_shared/push.ts';
 import { fetchLive, gameState, gradeEntry, fmtHalf } from '../_shared/site/live.js';
 import { buildModel } from '../_shared/site/model.js';
 
+// ESPN's feed turns away requests that don't look like a browser.
+const BROWSER = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36', Accept: 'application/json,text/plain,*/*', 'Accept-Language': 'en-US,en;q=0.9' };
+// js/live.js calls plain fetch(); from Supabase's servers ESPN answers that with 403. Add the
+// browser headers to ESPN requests only (everything else, e.g. the database, is untouched).
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((input: any, init: any = {}) => {
+  const url = typeof input === 'string' ? input : input?.url ?? String(input);
+  return /(^|\.)espn\.com\//.test(new URL(url).host + '/') ? realFetch(input, { ...init, headers: { ...BROWSER, ...(init.headers || {}) } }) : realFetch(input, init);
+}) as typeof fetch;
 const ds = async (key: string) => (await sb.from('datasets').select('value').eq('key', key).maybeSingle()).data?.value ?? null;
 const cap1 = (s: string) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
 const nice = (s: string) => String(s).replace(/\b([A-Z][A-Z.&' ]+)\b/g, m => (m.length > 3 ? m.toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : m));
@@ -23,6 +32,15 @@ Deno.serve(async req => {
 
   const roster = (await ds('roster')) || {};
   const live = await fetchLive({ games: near });
+  // ?debug: why might the score feed be empty here?
+  if (new URL(req.url).searchParams.has('debug')) {
+    const g = near[0]; const sp = g.espn.sport === 'nfl' ? 'nfl' : 'college-football';
+    const d = new Date(g.espn.kickoff); const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/${sp}/scoreboard?dates=${et.getFullYear()}${String(et.getMonth() + 1).padStart(2, '0')}${String(et.getDate()).padStart(2, '0')}&limit=400${sp === 'college-football' ? '&groups=80' : ''}`;
+    const tryIt = async (headers: Record<string, string>) => { try { const r = await fetch(url, { headers }); const t = await r.text(); return `${r.status} ${t.length} bytes: ${t.slice(0, 60)}`; } catch (e) { return 'threw: ' + (e as Error).message; } };
+    const probe = { plain: await tryIt({}), browser: await tryIt(BROWSER), alt: await tryIt({ ...BROWSER, Origin: 'https://www.espn.com', Referer: 'https://www.espn.com/' }) };
+    return json({ near: near.length, live: live.size, sample: { id: g.espn.id, sport: g.espn.sport, kickoff: g.espn.kickoff, et: d.toLocaleString('en-US', { timeZone: 'America/New_York' }) }, url, probe });
+  }
   const research = buildModel({ ...week, games: near }, live);
   const { data: prevRows } = await sb.from('game_alert_state').select('game_id, state').in('game_id', near.map((g: any) => g.espn.id));
   const prev = new Map((prevRows || []).map(r => [r.game_id, r.state]));
