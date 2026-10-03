@@ -195,10 +195,39 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('mess
 // Tapping a chat notification opens #talk; switch tabs when only the hash changes.
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (S.started && h && h !== S.tab && ['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(h)) { go(h); } });
 
+// ---------- light usage tracking ----------
+// Who had the dashboard open, when, on what kind of device, and which tabs (counts only). Stamped on
+// opening, every 5 minutes while on screen, and on return; a new visit after 30 minutes away.
+function startVisit() {
+  if (db.LOCAL || !S.user) return;
+  const ua = navigator.userAgent;
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : 'Other';
+  const br = /Firefox\//.test(ua) ? 'Firefox' : /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  const fresh = () => { S.visit = { id: crypto.randomUUID(), device: `${os} · ${br}${isStandalone() ? ' · app' : ''}`, tabs: { [S.tab]: 1 }, saved: false, at: Date.now() };
+    db.saveVisit(S.visit, true).then(() => { S.visit.saved = true; }).catch(() => {}); };
+  const beat = () => { if (!document.hidden && S.visit?.saved) { S.visit.at = Date.now(); db.saveVisit(S.visit, false).catch(() => {}); } };
+  fresh();
+  setInterval(beat, 5 * 60e3);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { beat(); return; } if (Date.now() - (S.visit?.at || 0) > 30 * 60e3) fresh(); else beat(); });
+}
+function countTab(tab) { if (S.visit && tab !== S.tab) S.visit.tabs[tab] = (S.visit.tabs[tab] || 0) + 1; }
+async function drawVisits() {
+  const box = $('#visitsBox'); if (!box) return;
+  const vs = await db.listVisits(14).catch(() => []);
+  const fmt = iso => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const people = FAMILY.filter(f => !f.shadow || f.key === S.user.key).map(f => {
+    const mine = vs.filter(v => v.who === f.key); const last = mine[0];
+    const tabs = {}; for (const v of mine) for (const [t, n] of Object.entries(v.tabs || {})) tabs[t] = (tabs[t] || 0) + n;
+    const top = Object.entries(tabs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => ({ gameday: 'Game Day', standings: 'Standings', h2h: 'Head to Head', lab: 'Pick Lab', talk: 'Smack Talk', history: 'History', admin: 'Upload', help: 'Help' }[t] || t));
+    return `<li><b>${esc(f.short)}</b>: ${last ? `last seen ${esc(fmt(last.last_seen))} on ${esc(last.device || 'a device')} · ${mine.length} visit${mine.length === 1 ? '' : 's'} in 14 days${top.length ? ` · mostly ${esc(top.join(', '))}` : ''}` : '<span class="muted">no visits recorded yet</span>'}</li>`; });
+  box.innerHTML = `<ul class="sr-list">${people.join('')}</ul><p class="note">Recorded since Oct 3 2026: when the dashboard was open, the kind of device, and which tabs. Nothing else.</p>`;
+}
+
 async function start() {
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   if (S.started) return;   // e.g. returning from "change password"
   S.started = true;
+  startVisit();
   // Installed app (Home Screen / Install): there's nothing "behind" the dashboard, and swiping back
   // used to leave a blank screen. Keep one spare step in hand. Browsers skip steps a page adds
   // without a tap, so it's added on the first tap and re-armed on the next tap after it's used.
@@ -267,7 +296,7 @@ async function start() {
   setInterval(() => { if (!document.hidden) syncChat(); }, 20e3);
   chatSig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
 }
-function go(tab) { S.tab = tab; history.replaceState(history.state, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
+function go(tab) { countTab(tab); S.tab = tab; history.replaceState(history.state, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
 
 // Model + simulation are recomputed whenever scores/lines refresh or new picks arrive.
 function simEntries() {
@@ -1590,7 +1619,9 @@ async function downloadArchive(label) {
 }
 function viewAdmin() {
   if (!S.user.admin) return go('gameday');
+  setTimeout(drawVisits, 0);
   $('#main').innerHTML = `${title('Upload', 'Commissioner files go in here and everyone sees the update')}
+    ${db.LOCAL ? '' : `<div class="panel insight" style="margin-bottom:14px"><h3>👀 Who's been around</h3><div id="visitsBox"><p class="muted">Loading…</p></div></div>`}
     ${db.LOCAL ? `<div class="panel insight"><p>Preview mode is read-only. Uploads need the Supabase backend.</p></div>` : ''}
     <div class="grid two">
       <div class="panel insight"><h3>📄 Weekly picks sheets (.xls)</h3><p>Drop one or more pick sheets for week ${S.week.week} (e.g. <code>2026.Week4.FirstLast.xls</code>). A sheet with many rows (the whole league) works too.</p>

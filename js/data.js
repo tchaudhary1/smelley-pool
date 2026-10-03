@@ -316,3 +316,18 @@ export async function setFollow(gameId, week, on) {
   if (on) { const { data } = await c.auth.getUser(); const { error } = await c.from('game_follows').upsert({ user_id: data.user.id, game_id: gameId, week }); if (error) throw error; }
   else await c.from('game_follows').delete().eq('game_id', gameId);
 }
+
+// ---------- light usage tracking (who had the dashboard open; admin reads) ----------
+export async function saveVisit(v, first) {
+  if (LOCAL) return;
+  const c = await client(); const now = new Date().toISOString();
+  const { error } = first ? await c.from('visits').insert({ id: v.id, device: v.device, started_at: now, last_seen: now, tabs: v.tabs })
+    : await c.from('visits').update({ last_seen: now, tabs: v.tabs }).eq('id', v.id);
+  if (error) throw error;
+}
+export async function listVisits(days = 14) {
+  if (LOCAL) return [];
+  await loadProfiles();
+  const { data } = await (await client()).from('visits').select('*').gte('last_seen', new Date(Date.now() - days * 864e5).toISOString()).order('last_seen', { ascending: false }).limit(2000);
+  return (data || []).map(v => ({ ...v, who: keyOf[v.user_id] ?? '?' }));
+}

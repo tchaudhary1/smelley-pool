@@ -241,6 +241,7 @@ export const HELP = [
       <ul><li>Only signed-in family members can see picks, standings and the chat. Someone who finds the web address sees only the sign-in page.</li>
       <li>Accounts are invite-only; nobody can sign themselves up, and sign-in links only go to emails already on the list.</li>
       <li>Everyone in the family can read every chat message. You can delete your own.</li>
+      <li>Tarun can see when you last had the dashboard open, what kind of device it was on (e.g. "Android · Chrome") and which tabs you opened. Nothing about what you read, typed or tapped. It's kept for 60 days and helps us see what's being used.</li>
       <li>Past seasons and scouting reports (including other league members' names and picks) are behind the same login and never in the public code.</li>
       <li>When The Commentator writes a comment, the relevant scores, picks, past-season stats and recent chat lines are sent to Claude to write it. For news questions it searches sports sites for team and player names only.</li></ul>` },
   ]},
