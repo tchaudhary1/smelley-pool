@@ -32,7 +32,9 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const win = wins.find(w => w.url.startsWith(self.registration.scope));
-    if (win) { await win.focus(); try { await win.navigate(url); } catch { win.postMessage({ type: 'open', url }); } return; }
+    // App already open: bring it forward and tell it where to go. It switches itself (opens the game
+    // card or the tab), which works everywhere; asking the browser to navigate it didn't (Firefox).
+    if (win) { try { await win.focus(); } catch { /* still tell it */ } win.postMessage({ type: 'open', url }); return; }
     await self.clients.openWindow(url);
   })());
 });

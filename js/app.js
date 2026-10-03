@@ -190,10 +190,29 @@ async function openNotifications() {
 // The service worker asks the page to save a replaced subscription, or to open a screen.
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', async e => {
   if (e.data?.type === 'resubscribe' && VAPID_PUBLIC && Notification.permission === 'granted') db.enablePush(VAPID_PUBLIC).catch(() => {});
-  if (e.data?.type === 'open' && e.data.url) location.href = e.data.url;
+  if (e.data?.type === 'open' && e.data.url) openFromNotification(e.data.url);
 });
+// A tapped notification while the app is open: go straight to what it was about, without a reload.
+// ?game=N opens that game's card (on Game Day); #tab switches tab; ?notify opens the settings.
+function openFromNotification(raw) {
+  let u; try { u = new URL(raw, location.href); } catch { return; }
+  if (!S.started) { location.href = u.href; return; }   // not signed in yet: a normal load handles it
+  const tab = u.hash.slice(1), game = u.searchParams.get('game');
+  S.navLock = Date.now() + 1500;   // closing a card fires a late "hash changed" echo; don't let it switch tabs back
+  const run = () => {
+    if (game) { if (S.tab !== 'gameday') go('gameday'); openGame(+game); }
+    else if (u.searchParams.has('notify')) openNotifications();
+    else if (tab && ['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(tab)) go(tab);
+  };
+  // An open card is closed first; its "back" step settles asynchronously, so switch after it.
+  if ($('.modal')) {
+    let done = false; const go2 = () => { if (!done) { done = true; window.removeEventListener('popstate', go2); setTimeout(run, 0); } };
+    window.addEventListener('popstate', go2); setTimeout(go2, 1000);
+    closeModal();
+  } else run();
+}
 // Tapping a chat notification opens #talk; switch tabs when only the hash changes.
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (S.started && h && h !== S.tab && ['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(h)) { go(h); } });
+window.addEventListener('hashchange', () => { if (Date.now() < (S.navLock || 0)) return; const h = location.hash.slice(1); if (S.started && h && h !== S.tab && ['gameday', 'standings', 'h2h', 'lab', 'talk', 'history', 'admin', 'help'].includes(h)) { go(h); } });
 
 // ---------- light usage tracking ----------
 // Who had the dashboard open, when, on what kind of device, and which tabs (counts only). Stamped on
