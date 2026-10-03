@@ -548,7 +548,7 @@ const RECAP_SYSTEM = SYSTEM
   .replace('- Write ONE chat message, 1-2 sentences, at most 240 characters.', '- Write ONE chat message: the weekly recap. 6-9 short lines separated by line breaks, at most 1100 characters. Open with a punchy headline line, end with a one-line look ahead (no predictions about who will win).')
   .replace('At most one emoji.', 'Use a few emoji (at most one per line).');
 const PREVIEW_SYSTEM = SYSTEM
-  .replace('- Write ONE chat message, 1-2 sentences, at most 240 characters.', '- Write ONE chat message: the weekend kickoff preview. 7-10 short lines separated by line breaks, at most 1100 characters. Open with a punchy all-caps headline line and close with a rallying cry that nods to the family motto.')
+  .replace('- Write ONE chat message, 1-2 sentences, at most 240 characters.', '- Write ONE chat message: the weekend kickoff preview. 7-10 short lines separated by line breaks, at most 950 characters. Open with a punchy all-caps headline line and close with a rallying cry that nods to the family motto.')
   .replace('At most one emoji.', 'Use a few emoji (at most one per line).');
 
 async function recentChat() {
@@ -570,8 +570,25 @@ const beat = extra => { if (DRY) return; try { fs.writeFileSync(path.join(MON_DI
 
 // kind and meta.to drive phone notifications (js/notify.js): preview/recap are "big" posts, and a
 // question or answer addressed to someone notifies them.
+// Chat messages are capped at 1000 characters (database check): split longer posts at paragraph,
+// then sentence, breaks into parts posted in order. Only the first part carries the kind/recipients,
+// so a long post notifies once.
+function splitPost(body, max = 990) {
+  const parts = []; let cur = '';
+  // Break at line ends; only a single line longer than a whole part is cut, at a sentence end
+  // (". " before a capital letter, so "proj." or "No." inside a sentence doesn't count).
+  const pieces = body.split(/(\n+)/).flatMap(p => (p.length > max ? p.split(/(?<=[.!?])\s+(?=[A-Z"“])/).map(s => s + ' ') : [p]));
+  for (const p of pieces) { if ((cur + p).length > max && cur.trim()) { parts.push(cur.trim()); cur = ''; } cur += p.length > max ? p.slice(0, max) : p; }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
 async function post(body, week, game, { kind = null, to = [] } = {}) {
   if (DRY) { log('DRY-RUN would post:', body, kind ? `[${kind}${to.length ? ' to ' + to.join(',') : ''}]` : ''); return null; }
+  if (body.length > 1000) {
+    const parts = splitPost(body); let firstId = null;
+    for (const [i, part] of parts.entries()) { const id = await post(part, week, game, i ? {} : { kind, to }); firstId ??= id; }
+    return firstId;
+  }
   const row = { body, week, game_no: game ?? null, ...(kind ? { kind } : {}), ...(to.length ? { meta: { to } } : {}) };
   let { data, error } = await sb.from('messages').insert(row).select('id').single();
   // Before the notifications SQL runs there are no kind/meta columns: post without them.
