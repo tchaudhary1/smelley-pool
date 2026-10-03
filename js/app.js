@@ -304,6 +304,11 @@ async function start() {
   const q = new URLSearchParams(location.search);
   if (q.get('season')) { S.histYr = q.get('season'); if (!hash) S.tab = 'history'; }
   render(); schedule();
+  // These links are one-time instructions (often from a notification tap): read now, take them
+  // out of the address so pull-to-refresh reloads the page you're on, not the card the link opened.
+  // (Done before any card opens, so closing the card can't step back to the old address.)
+  const once = ['game', 'notify', 'h2h', 'profile', 'season'].filter(k => q.has(k));
+  if (once.length) { const u = new URL(location.href); once.forEach(k => u.searchParams.delete(k)); history.replaceState(history.state, '', u.pathname + u.search + (location.hash || '#' + S.tab)); }
   if (q.get('profile')) openProfile(q.get('profile'));
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
