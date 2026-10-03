@@ -193,10 +193,13 @@ async function start() {
   if (S.started) return;   // e.g. returning from "change password"
   S.started = true;
   // Installed app (Home Screen / Install): there's nothing "behind" the dashboard, and swiping back
-  // used to leave a blank screen. Keep one step in hand and put it back whenever it's used.
+  // used to leave a blank screen. Keep one spare step in hand. Browsers skip steps a page adds
+  // without a tap, so it's added on the first tap and re-armed on the next tap after it's used.
   if (isStandalone()) {
-    history.replaceState({ ...(history.state || {}), spBase: 1 }, ''); history.pushState({ spTop: 1 }, '');
-    window.addEventListener('popstate', e => { if (e.state?.spBase) history.pushState({ spTop: 1 }, ''); });
+    history.replaceState({ ...(history.state || {}), spBase: 1 }, '');
+    let armed = false;
+    document.addEventListener('pointerdown', () => { if (!armed && history.state?.spBase) { history.pushState({ spTop: 1 }, ''); armed = true; } }, { capture: true });
+    window.addEventListener('popstate', e => { if (e.state?.spBase) armed = false; });
   }
   if (!db.LOCAL) db.listFollows().then(f => { S.follows = new Set(f); }).catch(() => {});
   const me = fam(S.user.key);

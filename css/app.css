@@ -570,3 +570,6 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 .code-row .btn { margin-top: 10px; width: 100%; }
 .nf-steps { margin: 6px 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
 .nf-steps li { margin: 4px 0; }
+
+/* Installed app: the screen-edge swipe shouldn't act as browser "back" (it showed a blank card). Cards still close with x. */
+@media (display-mode: standalone) { html, body { overscroll-behavior-x: none; } }
