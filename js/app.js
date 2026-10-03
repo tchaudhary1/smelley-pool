@@ -205,10 +205,12 @@ async function start() {
   if (isStandalone()) {
     const clean = new URL(location.href); clean.searchParams.delete('app');   // keep ?app=1 out of the address
     history.replaceState({ ...(history.state || {}), spBase: 1 }, '', clean.pathname + clean.search + clean.hash);
+    // Browsers skip back over any step the user never touched, so the spare is only added after a
+    // tap on the dashboard (adding it at launch made the dashboard's own step skippable). Once used,
+    // it's put back at once: the dashboard's step has been touched by then.
     const spare = () => { if (history.state?.spBase) history.pushState({ spTop: 1 }, ''); };
-    spare();   // Firefox keeps this one; Chrome/Safari skip steps added without a tap, so...
-    document.addEventListener('pointerdown', spare, { capture: true });   // ...also add it on a tap
-    window.addEventListener('popstate', e => { if (e.state?.spBase) spare(); });   // and put it back after use
+    document.addEventListener('pointerdown', spare, { capture: true });
+    window.addEventListener('popstate', e => { if (e.state?.spBase) spare(); });
   }
   if (!db.LOCAL) db.listFollows().then(f => { S.follows = new Set(f); }).catch(() => {});
   const me = fam(S.user.key);
@@ -265,7 +267,7 @@ async function start() {
   setInterval(() => { if (!document.hidden) syncChat(); }, 20e3);
   chatSig = JSON.stringify([S.msgs.map(m => [m.id, m.body]), S.reacts]);
 }
-function go(tab) { S.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
+function go(tab) { S.tab = tab; history.replaceState(history.state, '', '#' + tab); render(); window.scrollTo({ top: 0 }); }
 
 // Model + simulation are recomputed whenever scores/lines refresh or new picks arrive.
 function simEntries() {
