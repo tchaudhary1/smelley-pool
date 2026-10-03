@@ -185,6 +185,7 @@ async function openNotifications() {
       catch (e) { say('Couldn’t send: ' + e.message); } test.disabled = false; };
     $$('[data-rm]', m).forEach(b => b.onclick = async () => { await db.removeDevice(b.dataset.rm); if (b.dataset.rm === state.endpoint) await db.disablePush().catch(() => {}); devices = await db.listDevices(); state = await db.pushState(); redraw(); });
   };
+  modalRefresher = null;   // live updates must not redraw a previously opened game card over this screen
   openModal(draw(), { onMount: mount });
 }
 // The service worker asks the page to save a replaced subscription, or to open a screen.
@@ -336,7 +337,34 @@ function recompute() {
   S.week.research = buildModel(S.week, S.live);
   const ents = simEntries();
   S.field = S.league ? fieldModel(S.league, S.week.week) : null;
-  S.sim = ents.some(e => e.conf) ? simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field) : null;
+  if (!ents.some(e => e.conf)) { S.sim = null; simSeq++; return; }
+  simulate(ents);
+}
+// The simulation runs in a background worker (js/sim-worker.js) so the screen stays responsive; the
+// page keeps showing the previous odds until the new ones arrive, then redraws. Browsers without
+// module workers (or if the worker fails) run it here as before.
+let simWorker = null, simSeq = 0;
+function simulate(ents) {
+  const id = ++simSeq;
+  const runHere = () => { if (id !== simSeq) return; S.sim = simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field); };
+  if (simWorker === null) {
+    try {
+      simWorker = new Worker(new URL('./sim-worker.js', import.meta.url), { type: 'module' });
+      simWorker.onmessage = e => {
+        if (e.data.id !== simSeq) return;   // a newer calculation is on its way
+        if (e.data.error) { simWorker = false; runHere(); } else S.sim = e.data.sim;
+        simDrawn();
+      };
+      simWorker.onerror = () => { simWorker = false; runHere(); simDrawn(); };
+    } catch { simWorker = false; }
+  }
+  if (!simWorker) { runHere(); return; }
+  simWorker.postMessage({ id, week: S.week, live: [...S.live], research: S.week.research, ents, n: 5000, field: S.field });
+}
+// New odds arrived: redraw what shows them (not the chat or history, and not mid-typing).
+function simDrawn() {
+  if (!S.started) return;
+  if ($('.modal')) refreshOpenModal(); else if (LIVE_TABS.has(S.tab)) render();
 }
 // The latest market line for a game, and how far it has moved from the pool's printed spread.
 // null when ESPN has no DraftKings line (the cover chance is then a 50/50 placeholder).
