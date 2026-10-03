@@ -818,7 +818,7 @@ function viewLab() {
     ${title('Pick styles', 'This week against each person\'s usual. Style is the one thing that carries over from season to season here')}<div class="grid two">${E.map(styleCard).join('') || '<div class="panel empty">No picks loaded yet.</div>'}</div>
     ${title('Consensus board', 'Every game with at least one family pick')}
     <div class="panel tbl-wrap">${consensusTable()}</div>
-    ${S.week.shadow ? `${title('The shadow card', 'Watson–Tarun, built from multi-book lines and power ratings. Unofficial')}<div class="panel" style="padding:8px 14px">${shadowList()}</div>` : ''}`;
+    ${S.week.shadow ? `${title('The shadow card', esc(S.week.shadow.label || 'Tarun’s shadow card') + '. Unofficial')}<div class="panel" style="padding:8px 14px">${shadowList()}</div>` : ''}`;
   $$('[data-member]').forEach(el => el.onclick = () => openMember(el.dataset.member));
   $$('[data-game]').forEach(el => el.onclick = () => openGame(+el.dataset.game));
 }
@@ -895,7 +895,7 @@ function shadowList() {
   return Object.entries(sh.conf).sort((a, b) => b[0] - a[0]).map(([c, no]) => { const { g, side } = G.get(no); const n = sh.notes?.[no] || {};
     const row = gradeEntry(sh, S.week, S.live).rows.find(r => r.conf === +c);
     return `<div class="pickrow clickable" data-game="${g.fav_no}"><span class="cf ${row?.status}">${c}</span><div class="grow"><b>${esc(sideName(g, side))} ${sideSpread(g, side)}</b> <span class="muted">v ${esc(sideName(g, side === 'fav' ? 'dog' : 'fav'))}</span>
-      <small>${esc(n.rationale || '')}</small></div><div class="rt">${n.p_low ? `${pct(n.p_low)}–${pct(n.p_high)}` : ''}<br><span class="muted">${esc(n.risk || '')} risk</span></div></div>`; }).join('');
+      <small>${esc(n.rationale || '')}</small></div><div class="rt">${n.p_low ? `${pct(n.p_low)}–${pct(n.p_high)}` : n.p ? pct(n.p) : ''}<br><span class="muted">${n.risk ? `${esc(n.risk)} risk` : n.p ? 'when picked' : ''}</span></div></div>`; }).join('');
 }
 
 // ------------------------------------------------------------ SMACK TALK
