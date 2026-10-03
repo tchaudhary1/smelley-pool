@@ -35,8 +35,13 @@ export function quantile(a, q) { const s = [...a].sort((x, y) => x - y); if (!s.
 
 // ---------- modal ----------
 let lastFocus = null;
+// An open card adds one "back" step, so swipe-back on a phone (or Android's back button) closes the
+// card instead of leaving the page. Opening a card from inside another reuses the same step.
+let modalStep = false;
+window.addEventListener('popstate', () => { if (modalStep) { modalStep = false; closeModal({ fromBack: true }); } });
 export function openModal(html, { onMount } = {}) {
-  closeModal();
+  closeModal({ replacing: true });
+  if (!modalStep) { history.pushState({ ...(history.state || {}), spModal: 1 }, ''); modalStep = true; }
   lastFocus = document.activeElement;
   const root = $('#modalRoot');
   root.innerHTML = `<div class="modal-bg" data-close><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
@@ -47,8 +52,12 @@ export function openModal(html, { onMount } = {}) {
   bg.querySelector('[data-x]')?.focus();
 }
 function escClose(e) { if (e.key === 'Escape') closeModal(); }
-export function closeModal() {
+export function closeModal(opts) {
+  const { replacing = false, fromBack = false } = opts && !(opts instanceof Event) ? opts : {};
   $('#modalRoot').innerHTML = ''; document.removeEventListener('keydown', escClose);
+  if (replacing) return;
+  // Closed with × / outside tap / Esc: take back the step the card added.
+  if (!fromBack && modalStep) { modalStep = false; if (history.state?.spModal) history.back(); }
   lastFocus?.focus?.();
 }
 export const modalHead = (kicker, title, extra = '') =>
