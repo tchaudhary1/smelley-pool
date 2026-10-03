@@ -13,7 +13,7 @@ import { env } from './env.mjs';
 const [dir, ...rest] = process.argv.slice(2);
 if (!dir || !fs.existsSync(path.join(dir, 'manifest.json'))) throw new Error('usage: node tools/restore.mjs backups/<folder> [table ...] [--go]');
 const go = rest.includes('--go');
-const KEYS = { datasets: 'key', profiles: 'user_id', messages: 'id', reactions: 'id', push_subscriptions: 'endpoint', notification_prefs: 'user_id', game_follows: 'user_id,game_id', notification_log: 'id', game_alert_state: 'game_id' };
+const KEYS = { datasets: 'key', profiles: 'user_id', messages: 'id', reactions: 'id', push_subscriptions: 'endpoint', notification_prefs: 'user_id', game_follows: 'user_id,game_id', notification_log: 'id', game_alert_state: 'game_id', visits: 'id' };
 // messages/reactions ids are "generated always", which the API can't write: restore those with the SQL
 // editor if ever needed (the snapshot JSON has every column). Everything else upserts cleanly.
 const SQL_ONLY = new Set(['messages', 'reactions', 'notification_log']);

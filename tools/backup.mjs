@@ -11,7 +11,7 @@ import { env } from './env.mjs';
 
 const sb = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 // Every table the site uses. New tables (notifications) are included when they exist.
-const TABLES = ['datasets', 'profiles', 'messages', 'reactions', 'push_subscriptions', 'notification_prefs', 'game_follows', 'notification_log', 'game_alert_state'];
+const TABLES = ['datasets', 'profiles', 'messages', 'reactions', 'push_subscriptions', 'notification_prefs', 'game_follows', 'notification_log', 'game_alert_state', 'visits'];
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const dir = path.join('backups', `${stamp}${process.argv[2] ? '-' + process.argv[2].replace(/[^\w-]/g, '') : ''}`);
 fs.mkdirSync(dir, { recursive: true });
