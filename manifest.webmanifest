@@ -3,7 +3,7 @@
   "short_name": "Smelley Pool",
   "description": "The Smelley family football pool. No lead is safe.",
   "id": "./",
-  "start_url": "./",
+  "start_url": "./?app=1",
   "scope": "./",
   "display": "standalone",
   "background_color": "#1d2b4a",

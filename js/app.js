@@ -124,7 +124,10 @@ function accountMenu() {
 }
 // ---------- notifications (Web Push; Android and desktop for now) ----------
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS reports a Mac
-const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// The installed app opens ./?app=1 (manifest start_url): remembered for the visit, because not every
+// browser reports display-mode for installed apps (Firefox on Android doesn't reliably).
+const LAUNCHED_AS_APP = (() => { try { if (new URLSearchParams(location.search).has('app')) sessionStorage.setItem('sp.app', '1'); return sessionStorage.getItem('sp.app') === '1'; } catch { return false; } })();
+const isStandalone = () => LAUNCHED_AS_APP || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true;
 // iPhone/iPad: notifications only work from the Home Screen app (iOS 16.4+), which keeps its own sign-in.
 const IOS_STEPS = `<ol class="nf-steps"><li>In <b>Safari</b>, tap the <b>Share</b> button (the square with an arrow ↑).</li><li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Close Safari and open <b>Smelley Pool</b> from your Home Screen.</li><li>Sign in there: type your email, tap <b>Email me a sign-in link or code</b>, and type the <b>6-digit code</b> from the email (or use your password).</li><li>Tap your name (top right) → <b>🔔 Notifications</b> → <b>Turn on notifications</b>, and tap <b>Allow</b>.</li></ol>`;
 async function openNotifications() {
@@ -196,10 +199,12 @@ async function start() {
   // used to leave a blank screen. Keep one spare step in hand. Browsers skip steps a page adds
   // without a tap, so it's added on the first tap and re-armed on the next tap after it's used.
   if (isStandalone()) {
-    history.replaceState({ ...(history.state || {}), spBase: 1 }, '');
-    let armed = false;
-    document.addEventListener('pointerdown', () => { if (!armed && history.state?.spBase) { history.pushState({ spTop: 1 }, ''); armed = true; } }, { capture: true });
-    window.addEventListener('popstate', e => { if (e.state?.spBase) armed = false; });
+    const clean = new URL(location.href); clean.searchParams.delete('app');   // keep ?app=1 out of the address
+    history.replaceState({ ...(history.state || {}), spBase: 1 }, '', clean.pathname + clean.search + clean.hash);
+    const spare = () => { if (history.state?.spBase) history.pushState({ spTop: 1 }, ''); };
+    spare();   // Firefox keeps this one; Chrome/Safari skip steps added without a tap, so...
+    document.addEventListener('pointerdown', spare, { capture: true });   // ...also add it on a tap
+    window.addEventListener('popstate', e => { if (e.state?.spBase) spare(); });   // and put it back after use
   }
   if (!db.LOCAL) db.listFollows().then(f => { S.follows = new Set(f); }).catch(() => {});
   const me = fam(S.user.key);
