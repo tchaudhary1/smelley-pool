@@ -573,3 +573,8 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 
 /* Installed app: the screen-edge swipe shouldn't act as browser "back" (it showed a blank card). Cards still close with x. */
 @media (display-mode: standalone) { html, body { overscroll-behavior-x: none; } }
+
+/* "Calculating..." while the week simulation runs in the background */
+.calculating { color: var(--ink-3); animation: calcPulse 1.2s ease-in-out infinite; }
+@keyframes calcPulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .calculating { animation: none; } }

@@ -337,7 +337,7 @@ function recompute() {
   S.week.research = buildModel(S.week, S.live);
   const ents = simEntries();
   S.field = S.league ? fieldModel(S.league, S.week.week) : null;
-  if (!ents.some(e => e.conf)) { S.sim = null; simSeq++; return; }
+  if (!ents.some(e => e.conf)) { S.sim = null; S.simPending = false; simSeq++; return; }
   simulate(ents);
 }
 // The simulation runs in a background worker (js/sim-worker.js) so the screen stays responsive; the
@@ -345,14 +345,14 @@ function recompute() {
 // module workers (or if the worker fails) run it here as before.
 let simWorker = null, simSeq = 0;
 function simulate(ents) {
-  const id = ++simSeq;
-  const runHere = () => { if (id !== simSeq) return; S.sim = simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field); };
+  const id = ++simSeq; S.simPending = true;
+  const runHere = () => { if (id !== simSeq) return; S.sim = simulateWeek(S.week, S.live, S.week.research, ents, 5000, S.field); S.simPending = false; };
   if (simWorker === null) {
     try {
       simWorker = new Worker(new URL('./sim-worker.js', import.meta.url), { type: 'module' });
       simWorker.onmessage = e => {
         if (e.data.id !== simSeq) return;   // a newer calculation is on its way
-        if (e.data.error) { simWorker = false; runHere(); } else S.sim = e.data.sim;
+        if (e.data.error) { simWorker = false; runHere(); } else { S.sim = e.data.sim; S.simPending = false; }
         simDrawn();
       };
       simWorker.onerror = () => { simWorker = false; runHere(); simDrawn(); };
@@ -375,6 +375,7 @@ function marketNow(g) {
   return { line, d, move, p: r.p };
 }
 function raceLine(f) {
+  if (!S.sim && S.simPending && fam(f.key) && entries().some(e => e.f.key === f.key && e.picks)) return `<div class="meta race"><span class="calculating">🏆 Calculating odds…</span></div>`;
   const se = S.sim?.entries.find(x => x.key === f.key); if (!se || !se.picked) return '';
   const lg = se.league ? `<div class="meta race"><span>🏟️ League: about #${se.league.weekRank} this week · top-10 ${pct(se.league.pTop10)}</span></div>` : '';
   if (se.pWin != null) return `<div class="meta race"><span>🏆 Win week <b>${pct(se.pWin)}</b></span></div>${lg}`;
@@ -807,7 +808,9 @@ function swingGames() {
 // "This week's race": simulated odds + what-ifs that move them.
 function raceSection() {
   const sim = S.sim;
-  if (!sim) return `<div class="panel insight"><p>The race appears once picks are loaded.</p></div>`;
+  if (!sim) return S.simPending
+    ? `${title("This week's race", 'Running 5,000 simulated weeks with live lines and scores')}<div class="panel insight"><p class="calculating">Calculating…</p></div>`
+    : `<div class="panel insight"><p>The race appears once picks are loaded.</p></div>`;
   const rows = sim.entries.filter(e => e.picked && e.group !== 'league').sort((a, b) => (b.official - a.official) || (b.pWin ?? -1) - (a.pWin ?? -1) || b.mean - a.mean);
   const official = rows.filter(r => r.official).length;
   const bar = (p, color) => `<div class="race-bar"><i style="width:${Math.max(2, p * 100)}%;background:${color}"></i></div>`;
