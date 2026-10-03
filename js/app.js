@@ -239,6 +239,7 @@ async function start() {
   if (q.get('profile')) openProfile(q.get('profile'));
   // ?game=<pool number> opens a game card; ?h2h=debbie,jamie opens a rivalry card.
   if (q.get('game')) openGame(+q.get('game'));
+  if (q.has('notify')) openNotifications();   // link from the "turn on notifications" email
   if (q.get('h2h')) { const [ha, hb] = q.get('h2h').split(','); if (fam(ha) && fam(hb)) openH2H(ha, hb); }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncChat(); syncData(); refreshLive().then(() => { if (LIVE_TABS.has(S.tab) && !$('.modal')) render(); }); } });
   syncData(); setInterval(() => { if (!document.hidden) syncData(); }, 3 * 60e3);
