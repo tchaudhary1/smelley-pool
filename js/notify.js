@@ -43,7 +43,7 @@ const cap1 = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slic
 export function chatNotice(msg, me, prefs, botKey = 'commentator') {
   if (!msg || msg.author === me) return null;
   const meName = cap1(me);
-  const tagged = new RegExp(`@${meName}\\b`, 'i').test(msg.body || '') || (msg.meta?.to || []).includes(me);
+  const tagged = new RegExp(`@(${meName}|all)\\b`, 'i').test(msg.body || '') || (msg.meta?.to || []).includes(me);
   const text = String(msg.body || '').replace(/\s+/g, ' ').trim();
   const short = text.length > 180 ? text.slice(0, 177) + '…' : text;
   if (msg.author === botKey) {
@@ -56,7 +56,7 @@ export function chatNotice(msg, me, prefs, botKey = 'commentator') {
     return null;
   }
   const who = cap1(msg.author);
-  if (tagged && (prefs.chat === 'mentions' || prefs.chat === 'all')) return { kind: 'mention', title: `${who} mentioned you`, body: short };
+  if (tagged && (prefs.chat === 'mentions' || prefs.chat === 'all')) return { kind: 'mention', title: /@all\b/i.test(msg.body || '') ? `${who} to everyone` : `${who} mentioned you`, body: short };
   if (prefs.chat === 'all') return { kind: 'chat', title: `${who} in Smack Talk`, body: short };
   return null;
 }

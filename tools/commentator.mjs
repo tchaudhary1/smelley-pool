@@ -454,7 +454,7 @@ const QA_SYSTEM = () => SYSTEM
 const qaRoom = () => (state.qa = (state.qa || []).filter(t => Date.now() - t < 3600e3)).length < MAX_QA_PER_HOUR;
 // Cheap check (no Claude call) for an unanswered tag; lets the loop wake within seconds.
 async function pendingMention(me) {
-  const { data } = await sb.from('messages').select('id').gt('id', state.lastMentionId).neq('user_id', me).ilike('body', '%@commentator%').limit(1);
+  const { data } = await sb.from('messages').select('id').gt('id', state.lastMentionId).neq('user_id', me).or('body.ilike.%@commentator%,body.ilike.%@all%').limit(1);
   return !!data?.length;
 }
 // "The Commentator is typing…" for everyone in the chat: a realtime broadcast, nothing stored.
@@ -467,7 +467,7 @@ async function mentions(me) {
   const out = [];
   for (const m of data || []) {
     state.lastMentionId = Math.max(state.lastMentionId, m.id);
-    if (m.user_id !== me && /@commentator\b/i.test(m.body)) out.push(m);
+    if (m.user_id !== me && /@(commentator|all)\b/i.test(m.body)) out.push(m);   // @all includes the Commentator
   }
   return out;
 }
@@ -660,7 +660,7 @@ async function tick() {
     const { data: prof } = m.testAs ? { data: { first_name: m.testAs } } : await sb.from('profiles').select('first_name').eq('user_id', m.user_id).maybeSingle();
     const asker = FAMILY.find(f => f.key === prof?.first_name)?.short || 'Someone';
     replyTo = prof?.first_name || null;
-    const question = m.body.replace(/@commentator\b/ig, '').trim();
+    const question = m.body.replace(/@(commentator|all)\b/ig, '').trim();
     const hctx = Object.keys(ARCHIVES).length ? buildContext({ archives: ARCHIVES, league: P.league }) : null;
     const history = hctx ? { summary: historySummary(hctx, P.fam) } : null;
     const people = hctx ? namedPeople(P, question) : [];

@@ -132,7 +132,7 @@ export const HELP = [
       <p>The <b>consensus board</b> of every game with a family pick, and <b>the shadow card</b>, round it out.</p>` },
     { id: 'talk', title: 'Smack Talk', keys: 'chat smack talk message reactions emoji mention tag delete', body: `
       <ul><li>Type a message and press <b>Enter</b> (Shift+Enter for a new line), or tap Send (the gold ➤ on a phone). On a phone the chat fills the screen and stays above the keyboard.</li>
-      <li>Type <b>@</b> to mention someone: a menu pops up with the family and the Commentator. Keep typing to narrow it down, then tap a name or press Enter or Tab. Mentions are highlighted, and yours get a gold outline.</li>
+      <li>Type <b>@</b> to mention someone: a menu pops up with the family and the Commentator. <b>@all</b> reaches everyone at once (and the Commentator, which will chime in). Keep typing to narrow it down, then tap a name or press Enter or Tab. Mentions are highlighted, and yours get a gold outline.</li>
       <li><b>Game tag:</b> tap the 🏈 chip to attach a game. Tapping the tag on a message opens that game's card.</li>
       <li><b>Reactions:</b> tap <b>＋🙂</b> under any message, or on a pick in a card, to react. Tap your reaction again to remove it.</li>
       <li>You can delete your own messages (the "delete" link next to your name).</li>

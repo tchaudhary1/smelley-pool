@@ -519,7 +519,7 @@ function updateUnread() {
   const btn = $('#tabs button[data-tab="talk"]'); if (!btn || !S.user) return;
   if (chatSeen() == null || (S.tab === 'talk' && !document.hidden)) markChatSeen();   // first visit on this device, or reading now
   const seen = chatSeen() ?? 0, me = fam(S.user.key);
-  const tag = me ? new RegExp(`@${me.short}\\b`, 'i') : null;
+  const tag = me ? new RegExp(`@(${me.short}|all)\\b`, 'i') : null;
   const fresh = S.msgs.filter(m => msgTime(m) > seen && m.who !== S.user.key);
   const n = fresh.length, mention = !!tag && fresh.some(m => tag.test(m.body));
   btn.querySelector('.tab-badge')?.remove();
@@ -1083,18 +1083,20 @@ function feedMsgs() {
 }
 // ---------- @mentions ----------
 const handle = f => f.bot ? 'Commentator' : f.short;
-const mentionables = () => [BOT, ...FAMILY];
+// @all reaches everyone in the family and the Commentator.
+const ALL = { key: 'all', short: 'all', initial: '👪', color: '#1d2b4a', everyone: true };
+const mentionables = () => [ALL, BOT, ...FAMILY];
 function withMentions(body) {
   const names = new Map(mentionables().map(f => [handle(f).toLowerCase(), f]));
   return esc(body).replace(/(^|\s)@(\w+)/g, (all, pre, name) => { const f = names.get(name.toLowerCase());
-    return f ? `${pre}<span class="mention ${f.key === S.user.key ? 'me' : ''}" style="--c:${f.color}">@${esc(handle(f))}</span>` : all; });
+    return f ? `${pre}<span class="mention ${f.key === S.user.key || f.everyone ? 'me' : ''}" style="--c:${f.color}">@${esc(handle(f))}</span>` : all; });
 }
 function mentionMenu(ta) {
   const box = document.createElement('div'); box.className = 'mention-pop hidden'; box.setAttribute('role', 'listbox');
   ta.parentElement.appendChild(box);
   let items = [], idx = 0, start = -1, open = false;
   const close = () => { open = false; box.classList.add('hidden'); };
-  const draw = () => { box.innerHTML = items.map((f, i) => `<button type="button" role="option" aria-selected="${i === idx}" class="${i === idx ? 'on' : ''}" data-i="${i}">${avatar(f)}<span>${esc(handle(f))}</span>${f.bot ? '<small>bot</small>' : ''}</button>`).join('');
+  const draw = () => { box.innerHTML = items.map((f, i) => `<button type="button" role="option" aria-selected="${i === idx}" class="${i === idx ? 'on' : ''}" data-i="${i}">${avatar(f)}<span>${esc(handle(f))}</span>${f.bot ? '<small>bot</small>' : f.everyone ? '<small>everyone + Commentator</small>' : ''}</button>`).join('');
     box.classList.remove('hidden'); open = true; };
   const query = () => {
     const pos = ta.selectionStart, m = ta.value.slice(0, pos).match(/(^|\s)@(\w*)$/);
