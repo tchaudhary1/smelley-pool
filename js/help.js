@@ -18,22 +18,23 @@ export const HELP = [
       <p><b>Android (Chrome or Firefox):</b> open the site, tap the ⋮ menu, then <b>Add to Home screen</b> (or <b>Install</b>).</p>
       <p>It then opens like an app, with the crest as its icon. <b>On iPhone, sign in once more inside the Home Screen app</b> (it keeps its own sign-in, separate from Safari): tap <b>Email me a sign-in link or code</b> and type the 6-digit code from the email, or use your password.</p>` },
     { id: 'notifications', title: 'Phone notifications', keys: 'notifications notify alerts push buzz phone android iphone ipad ios chrome firefox safari home screen mentions follow bell quiet hours mute', body: `
-      <p>The dashboard can buzz your phone: <b>Android</b> (Chrome or Firefox), <b>iPhone and iPad</b> (iOS 16.4 or newer, from the Home Screen app) and computers.</p>
+      <p>The dashboard can buzz your phone: <b>Android</b> (Chrome works best: install the app from Chrome; Firefox delivers notifications but opens taps in the regular browser), <b>iPhone and iPad</b> (iOS 16.4 or newer, from the Home Screen app) and computers.</p>
       <p><b>iPhone:</b> Apple only allows notifications from the Home Screen app. In Safari tap <b>Share → Add to Home Screen</b>, open <b>Smelley Pool</b> from the Home Screen, sign in there with the emailed 6-digit code (or your password), then follow the steps below. The Notifications screen walks you through it.</p>
       <p><b>Turn it on:</b> tap your name (top right) → <b>🔔 Notifications</b> → <b>Turn on notifications</b>, and allow it when the browser asks. Then tap <b>Send me a test</b>. Do this on each phone or computer you want buzzed.</p>
       <p><b>Choose what you get</b> on the same screen (it starts with the quiet choices):</p>
       <ul><li><b>Smack Talk:</b> off, only when someone @mentions or replies to you, or every message.</li>
       <li><b>The Commentator:</b> off, only when it asks or answers you, plus the weekend preview and weekly recap, or every post.</li>
-      <li><b>My picks:</b> the final result of each pick, cover flips in the second half, late sweats in the last 6 minutes.</li>
+      <li><b>My picks:</b> the final result of each pick, cover flips in the second half, late sweats in the last 6 minutes. If a game you picked is postponed or canceled, you always get an alert so you can swap it.</li>
       <li><b>Games I follow:</b> open any game and tap <b>🔕 Follow this game</b>; choose final score only, cover changes, or every score.</li>
       <li><b>The family race:</b> your week's total when your last game ends, and when the family lead changes hands.</li>
       <li><b>How much:</b> an hourly limit, quiet hours (alerts then are skipped), and hiding details on the lock screen.</li></ul>
-      <p>Game alerts for the same game replace each other instead of piling up, and chat collapses into one "new messages" notification. Tapping a notification opens the right screen. These come from the dashboard's server, so they work even when Tarun's PC is off (the Commentator's own posts still need it).</p>
+      <p>Game alerts for the same game replace each other instead of piling up, and chat collapses into one "new messages" notification. Tapping a notification opens the right screen: chat opens Smack Talk, a game alert opens that game's card. These come from the dashboard's server, so they work even when Tarun's PC is off (the Commentator's own posts still need it).</p>
       <p><b>Not getting them?</b> Android: check the browser is allowed to notify (Settings → Apps → Chrome or Firefox → Notifications) and that battery saver isn't blocking it. iPhone: Settings → Notifications → Smelley Pool, and check Focus or Do Not Disturb isn't on. Then try the test button again.</p>` },
     { id: 'getting-around', title: 'Getting around (tabs, arrows, cards)', keys: 'navigation tabs arrows scroll swipe menu cards tap mobile phone', body: `
       <ul><li>The tabs run across the top: <b>Game Day, Standings, Head to Head, Pick Lab, Smack Talk, History, Help</b> (plus <b>Upload</b> for Tarun). On a phone they don't all fit: swipe the tab bar, or tap the <b>‹ ›</b> arrows that appear at its edges when more tabs are hidden that way.</li>
-      <li>Almost everything opens a <b>card</b> with more detail: family cards, games, standings rows, head-to-head squares, what-ifs, charts, even the crest. On a phone, cards slide up from the bottom. Close with ×, by tapping outside, or with the Esc key.</li>
-      <li>Everything refreshes on its own: live scores about every minute while games are live (every few minutes otherwise), newly uploaded picks and standings within about 3 minutes, and the chat instantly. Pull down (phone) or reload to refresh right away.</li></ul>` },
+      <li>Almost everything opens a <b>card</b> with more detail: family cards, games, standings rows, head-to-head squares, what-ifs, charts, even the crest. On a phone, cards slide up from the bottom. Close with ×, by tapping outside, with the Esc key, or with your phone's back gesture or button.</li>
+      <li>Everything refreshes on its own: live scores about every minute while games are live (every few minutes otherwise), newly uploaded picks and standings within about 3 minutes, and the chat instantly. Pull down (phone) or reload to refresh right away; you stay on the tab you're on.</li>
+      <li>Right after the app opens, the win odds take a few seconds to work out: the race card and family cards say <b>Calculating…</b> until they're ready, and you can keep tapping around meanwhile.</li></ul>` },
   ]},
   { group: 'Sign-in trouble', topics: [
     { id: 'theme', title: 'Light or dark mode', keys: 'dark mode light mode theme night colors brightness sun moon', body: `
@@ -96,6 +97,9 @@ export const HELP = [
       <li>The <b>thin bar</b> under a live score is the favorite's chance to cover right now.</li>
       <li>A team name turns <b>green</b> when that side is covering.</li>
       <li><b>DECIDED BY THE HOOK</b> means the game finished exactly half a point from the spread.</li></ul>` },
+    { id: 'called-off', title: 'Postponed or canceled games (weather, hurricanes)', keys: 'postponed canceled cancelled called off hurricane weather storm swap replacement void', body: `
+      <p>When ESPN lists a game as <b>postponed</b> or <b>canceled</b>, the dashboard picks it up within a minute or two: the game shows <b>POSTPONED</b> or <b>CANCELED</b> instead of a score, and picks on it show "swap it" with no points. Anyone with a pick on it gets a phone alert (if notifications are on).</p>
+      <p>The league allows a <b>swap</b>: send the commissioner a replacement game. Once the swap is loaded, it's graded like any other pick. Until then the pick doesn't count, and it's left out of everyone's maximum and the win odds.</p>` },
     { id: 'standings', title: 'Standings', keys: 'standings league rank tie T- back pctl percentile charts race family cup best ball family vs league around the league storylines movers climbers lead changes', body: `
       <p>The whole league's season totals, straight from the commissioner's weekly workbook. Switch between <b>Family only</b> and <b>Whole league</b>, or search a name. Tap a row for that person's card with their week-by-week scores and ranks.</p>
       <ul><li><b>T-9</b> means tied for 9th.</li>
@@ -168,7 +172,7 @@ export const HELP = [
       <p>If ESPN has no DraftKings line for a game yet (common early in the week, and for some small college games), it says <b>no market line yet</b> and treats the game as a coin flip.</p>
       <p>Once a game kicks off, its pregame line is frozen and the live score takes over. It isn't a crystal ball: even its favorite picks are only about 53–55% to cover.</p>` },
     { id: 'sim', title: 'Win odds, rankings and what-ifs', keys: 'simulation simulated 5000 projected field model league odds rank top 10 top quarter', body: `
-      <p>Every refresh, the dashboard plays the rest of the week out 5,000 times with those cover chances (finished games are fixed). From that come each person's family win odds, head-to-head odds, likely score range, league rank and top-10 chances, and the what-ifs.</p>
+      <p>Every refresh, the dashboard plays the rest of the week out 5,000 times with those cover chances (finished games are fixed; postponed or canceled games count for nothing until a swap is loaded). It runs in the background, so the screen stays responsive while it works. From that come each person's family win odds, head-to-head odds, likely score range, league rank and top-10 chances, and the what-ifs.</p>
       <p><b>League entries whose picks aren't uploaded</b>, and <b>family members whose picks aren't in yet</b> (marked "projected"), are simulated as an average league entry. That isn't laziness: across three seasons, a player's scores in one stretch said essentially nothing about the next (season-to-season averages correlate 0.02–0.04; a season's first half vs its second half, −0.12 to 0.04). As pick sheets are uploaded, real picks replace those guesses and everything sharpens.</p>` },
     { id: 'numbers', title: 'Where the data comes from', keys: 'data espn scores update frequency live delay time zone', body: `
       <ul><li><b>Scores and lines</b> come from ESPN's public scoreboard and refresh about every minute while games are live. They can lag a TV broadcast by 30 seconds or so.</li>
@@ -213,7 +217,8 @@ export const HELP = [
       <li>If your side <b>covers the printed spread</b>, you earn that many points. Otherwise zero. Best possible week: 55.</li>
       <li>Every spread ends in ½, so there are no ties (no pushes).</li>
       <li>The tiebreaker is the total points in the Monday night NFL game.</li>
-      <li>Picks are graded against the sheet's printed spread, not whatever the line moves to later.</li></ul>` },
+      <li>Picks are graded against the sheet's printed spread, not whatever the line moves to later.</li>
+      <li><b>Canceled or postponed games:</b> the league lets you swap that pick for another game; send the commissioner your replacement. Until a swap is loaded, the dashboard shows the game as <b>POSTPONED</b> or <b>CANCELED</b> and the pick earns nothing.</li></ul>` },
     { id: 'glossary', title: 'Glossary', keys: 'glossary spread cover hook juice favorite underdog backdoor push line key number best ball percentile what-if shadow', body: `
       <dl class="gloss">
         <dt>Spread</dt><dd>The points the favorite gives away. Georgia −14½ must win by 15 or more to cover; Oklahoma +14½ covers by winning, or by losing by 14 or fewer.</dd>
