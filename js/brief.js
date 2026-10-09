@@ -26,9 +26,9 @@ export function buildBrief(P) {
       + (se?.league ? `, league this week about #${se.league.weekRank} (top-10 week ${pc(se.league.pTop10)})` : '')
       + (se?.league?.seasonRank ? `, projected season rank after this week about #${se.league.seasonRank}` : '') + '.';
     const lines = gr.rows.filter(r => r.g).map(r => {
-      const st = r.st; const where = st.state === 'pre' ? `kicks off ${new Date(r.g.espn?.kickoff).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
+      const st = r.st; const where = st.state === 'void' ? `${st.detail.toUpperCase()}: called off, the league allows swapping this pick` : st.state === 'pre' ? `kicks off ${new Date(r.g.espn?.kickoff).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
         : `${r.g.fav} ${st.favScore}, ${r.g.dog} ${st.dogScore} (${st.detail})`;
-      const status = r.status === 'won' ? `WON +${r.conf}` : r.status === 'lost' ? 'LOST' : r.status === 'winning' ? `covering by ${fmtHalf(r.cushion)}` : r.status === 'losing' ? `short by ${fmtHalf(-r.cushion)}` : r.st?.noMarket ? 'no market line yet (cover chance unknown, treat as a coin flip)' : `${pc(r.pSide)} to cover`;
+      const status = r.status === 'void' ? 'NO POINTS (called off)' : r.status === 'won' ? `WON +${r.conf}` : r.status === 'lost' ? 'LOST' : r.status === 'winning' ? `covering by ${fmtHalf(r.cushion)}` : r.status === 'losing' ? `short by ${fmtHalf(-r.cushion)}` : r.st?.noMarket ? 'no market line yet (cover chance unknown, treat as a coin flip)' : `${pc(r.pSide)} to cover`;
       return `  ${r.conf}: ${side(r.g, r.side)} [#${r.side === 'fav' ? r.g.fav_no : r.g.dog_no}] — ${where} — ${status}`;
     });
     out.push(`\n${head}\n${lines.join('\n')}`);
@@ -51,7 +51,7 @@ export function buildBrief(P) {
     const on = members.filter(m => m.picks).flatMap(m => Object.entries(m.picks.conf).filter(([, no]) => no === g.fav_no || no === g.dog_no).map(([c, no]) => `${m.f.shadow ? 'shadow' : m.f.short} ${c} on ${no === g.fav_no ? g.fav : g.dog}`));
     if (!on.length) continue;
     const st = gameState(g, live, model);
-    if (st.state === 'post') continue;
+    if (st.state === 'post' || st.state === 'void') continue;
     gl.push(`  #${g.fav_no}/${g.dog_no} ${g.fav} −${fmtHalf(g.spread)} vs ${g.dog} +${fmtHalf(g.spread)} (${g.league}): ${st.state === 'in' ? `LIVE ${st.favScore}-${st.dogScore} ${st.detail}` : 'not started'}; ${st.state === 'pre' && st.noMarket ? 'no market line yet' : `${g.fav} cover chance ${pc(st.pFav)}`}; family: ${on.join(', ')}.`);
   }
   if (gl.length) out.push(`\nUNFINISHED GAMES WITH FAMILY PICKS:\n${gl.join('\n')}`);

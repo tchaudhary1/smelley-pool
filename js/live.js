@@ -38,6 +38,7 @@ export async function fetchLive(week) {
         }
         out.set(e.id, {
           state: st.type.state,                  // pre | in | post
+          voided: /POSTPONED|CANCEL/i.test(st.type.name || ''),   // called off (hurricanes, etc.)
           completed: st.type.completed,
           detail: st.type.shortDetail,           // "Q3 4:12", "Final", "Sat 7:30 PM"
           period: st.period, clock: st.displayClock, clockSec: st.clock,
@@ -70,6 +71,7 @@ export function gameState(g, live, research) {
   const favScore = fav?.score ?? 0, dogScore = dog?.score ?? 0;
   const margin = favScore - dogScore;
   const out = { ...s, state: s.state, favScore, dogScore, margin };
+  if (s.voided) return { ...out, state: 'void', favScore: null, dogScore: null, margin: null, pFav: preP(g, research), detail: /cancel/i.test(s.detail || '') ? 'Canceled' : 'Postponed' };
   if (s.state === 'pre') return { ...out, favScore: null, dogScore: null, margin: null, pFav: preP(g, research), noMarket };
   if (s.state === 'post') return { ...out, pFav: margin > g.spread ? 1 : 0, favCovers: margin > g.spread };
   // In progress: remaining-time scaled normal around the current margin.
@@ -97,13 +99,13 @@ export function gradeEntry(picks, week, live) {
     if (!hit) { rows.push({ conf, no, missing: true }); continue; }
     const { g, side } = hit;
     const st = gameState(g, live, week.research);
-    const pSide = side === 'fav' ? st.pFav : 1 - st.pFav;
-    let status = 'pending';
+    const pSide = st.state === 'void' ? 0 : side === 'fav' ? st.pFav : 1 - st.pFav;
+    let status = st.state === 'void' ? 'void' : 'pending';
     if (st.state === 'post') status = pSide === 1 ? 'won' : 'lost';
     else if (st.state === 'in') status = pSide >= 0.5 ? 'winning' : 'losing';
     if (status === 'won') banked += conf;
     if (status === 'lost') lost += conf;
-    if (st.state !== 'post') maxLeft += conf;
+    if (st.state !== 'post' && st.state !== 'void') maxLeft += conf;
     if (status === 'winning') liveNow += conf;
     expected += conf * pSide;
     const cushion = st.margin == null ? null : (side === 'fav' ? st.margin - g.spread : g.spread - st.margin);

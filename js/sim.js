@@ -42,7 +42,7 @@ export function simulateWeek(week, live, model, entries, N = 5000, field = null,
   games.forEach((g, i) => {
     idx.set(g.fav_no, [i, 1]); idx.set(g.dog_no, [i, 0]);
     const st = gameState(g, live, model);
-    decided[i] = forced && forced[g.fav_no] != null ? (forced[g.fav_no] ? 1 : 0) : st.state === 'post' ? (st.margin > g.spread ? 1 : 0) : -1;
+    decided[i] = forced && forced[g.fav_no] != null ? (forced[g.fav_no] ? 1 : 0) : st.state === 'post' ? (st.margin > g.spread ? 1 : 0) : st.state === 'void' ? 2 : -1;
     pFav[i] = st.pFav ?? 0.5;
   });
   const E = entries.map(e => ({ ...e, legs: Object.entries(e.conf || {}).map(([c, no]) => { const h = idx.get(no); return h ? [h[0], h[1], +c] : null; }).filter(Boolean) }))

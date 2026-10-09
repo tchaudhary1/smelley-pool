@@ -398,6 +398,9 @@ async function applyDemoLive() {
 async function refreshLive() {
   S.live = await fetchLive(S.week); S.lastLive = new Date();
   if (db.DEMO) await applyDemoLive();
+  // Local preview only: ?voidgame=<pool no> pretends that game was postponed, to check how it shows.
+  if (db.LOCAL) { const v = +new URLSearchParams(location.search).get('voidgame'); const vg = v && S.week.games.find(x => x.fav_no === v || x.dog_no === v);
+    if (vg?.espn) S.live.set(vg.espn.id, { ...(S.live.get(vg.espn.id) || { teams: {} }), state: 'post', completed: false, voided: true, detail: 'Postponed' }); }
   recompute();
   const n = [...S.live.values()].filter(s => s.state === 'in').length;
   $('#liveDot').classList.toggle('on', n > 0);
@@ -639,13 +642,16 @@ function slate() {
 }
 function gameRow(g) {
   const st = gameState(g, S.live, S.week.research); const on = allEntriesForGame(g);
-  const favCov = st.state !== 'pre' && st.margin > g.spread, dogCov = st.state !== 'pre' && !favCov;
+  const played = st.state === 'in' || st.state === 'post';
+  const favCov = played && st.margin > g.spread, dogCov = played && !favCov;
   const team = (side, cov) => {
     const nm = side === 'fav' ? g.fav : g.dog, logo = side === 'fav' ? g.espn?.favLogo : g.espn?.dogLogo, no = side === 'fav' ? g.fav_no : g.dog_no;
     return `<div class="team ${cov ? 'cover' : ''}">${logo ? `<img src="${logo}" alt="" loading="lazy">` : ''}<span class="nm">${esc(nm)}</span>
       <span class="sp">${sideSpread(g, side)}</span>${g.home === side ? '<span class="home">HOME</span>' : ''}<span class="pn">#${no}</span></div>`;
   };
-  const mid = st.state === 'pre'
+  const mid = st.state === 'void'
+    ? `<div class="score void-tag">${esc(st.detail.toUpperCase())}</div><div class="st">Called off: picks on it can be swapped</div>`
+    : st.state === 'pre'
     ? `<div class="score" style="font-size:14px">${etTime(g.espn?.kickoff)}</div><div class="st">${esc(leagueName(g))}${S.live.get(g.espn?.id)?.broadcast ? ' · ' + esc(S.live.get(g.espn.id).broadcast) : ''}</div>`
     : `<div class="score">${st.favScore}–${st.dogScore}</div><div class="st ${st.state === 'in' ? 'in' : ''}">${esc(st.detail)}</div>
        <div class="coverbar" title="${esc(g.fav)} cover chance ${pct(st.pFav)}"><i style="left:0;width:${st.pFav * 100}%"></i></div>`;
@@ -1171,7 +1177,7 @@ function openGame(favNo) {
     const espnUrl = g.espn ? `https://www.espn.com/${g.espn.sport === 'nfl' ? 'nfl' : 'college-football'}/game/_/gameId/${g.espn.id}` : null;
     return `${modalHead(`Week ${S.week.week} · ${leagueName(g)} · ${st.state === 'pre' ? etTime(g.espn?.kickoff) : st.detail}`, `${esc(g.fav)} −${fmtHalf(g.spread)} <span class="muted">v</span> ${esc(g.dog)}`)}
       <div class="mb">
-        ${st.state === 'pre' ? '' : `<div class="kv"><div><b>${st.favScore}–${st.dogScore}</b><span>${esc(g.fav)}–${esc(g.dog)}</span></div>
+        ${st.state === 'pre' ? '' : st.state === 'void' ? `<p><b class="void-tag">${esc(st.detail.toUpperCase())}.</b> This game was called off. The league lets anyone with a pick on it <b>swap in another game</b>: send the commissioner the replacement. Until a swap is loaded, the pick shows here with no points.</p>` : `<div class="kv"><div><b>${st.favScore}–${st.dogScore}</b><span>${esc(g.fav)}–${esc(g.dog)}</span></div>
           <div><b>${cushion > 0 ? esc(g.fav) : esc(g.dog)}</b><span>covering by ${fmtHalf(Math.abs(cushion))}</span></div>
           <div><b>${pct(st.pFav)}</b><span>${esc(g.fav)} cover chance${st.state === 'in' ? ' (live)' : ''}</span></div></div>
           <div class="gauge"><div class="zero"></div><div class="needle" style="left:${pos}%"></div></div>
@@ -1239,8 +1245,8 @@ function openMember(key) {
     const grade = e.picks ? gradeEntry(e.picks, S.week, S.live) : null;
     const picks = grade ? grade.rows.map(r => r.g ? `<div class="pickrow clickable" data-game="${r.g.fav_no}"><span class="cf ${r.status}">${r.conf}</span>
       <div class="grow"><b>${esc(sideName(r.g, r.side))} ${sideSpread(r.g, r.side)}</b> <span class="muted">v ${esc(sideName(r.g, r.side === 'fav' ? 'dog' : 'fav'))}</span>
-      <small>${r.g.league} · ${r.st.state === 'pre' ? etTime(r.g.espn.kickoff) : `${r.st.favScore}–${r.st.dogScore} ${esc(r.st.detail)}`}${r.cushion != null && r.st.state !== 'pre' ? ` · ${r.cushion > 0 ? 'covering' : 'short'} by ${fmtHalf(Math.abs(r.cushion))}` : ''}</small></div>
-      <div class="rt">${r.st.state === 'post' ? (r.status === 'won' ? `+${r.conf}` : '0') : pct(r.pSide)}<br><span class="muted">${r.st.state === 'post' ? r.status : 'to cover'}</span></div>
+      <small>${r.g.league} · ${r.st.state === 'void' ? `<b class="void-tag">${esc(r.st.detail)}</b>` : r.st.state === 'pre' ? etTime(r.g.espn.kickoff) : `${r.st.favScore}–${r.st.dogScore} ${esc(r.st.detail)}`}${r.cushion != null && r.st.state !== 'pre' ? ` · ${r.cushion > 0 ? 'covering' : 'short'} by ${fmtHalf(Math.abs(r.cushion))}` : ''}</small></div>
+      <div class="rt">${r.st.state === 'void' ? '–' : r.st.state === 'post' ? (r.status === 'won' ? `+${r.conf}` : '0') : pct(r.pSide)}<br><span class="muted">${r.st.state === 'void' ? 'swap it' : r.st.state === 'post' ? r.status : 'to cover'}</span></div>
       ${reactBar(`pick:${S.week.week}:${key}:${r.conf}`)}</div>` : `<div class="pickrow"><span class="cf">${r.conf}</span><div class="grow">Pool #${r.no} isn't on this week's sheet</div></div>`).join('') : `<div class="muted">No picks loaded for week ${S.week.week} yet.</div>`;
     return `${modalHead(f.shadow ? 'Shadow card · unofficial' : `League ${row?.rankLabel ?? '–'} of ${T.n}`, `${esc(f.short)}${f.pool ? ` <span class="muted" style="font-size:14px">${esc(f.pool)}</span>` : ''}`, avatar(f, 'lg'))}
       <div class="mb">
@@ -1293,7 +1299,8 @@ function openH2H(aKey, bKey) {
   const deciders = ga && gb ? S.week.games.map(g => {
     const aF = confOn(ea, g.fav_no), aD = confOn(ea, g.dog_no), bF = confOn(eb, g.fav_no), bD = confOn(eb, g.dog_no);
     const ifFav = aF - bF, ifDog = aD - bD; if (ifFav === ifDog) return null;   // same result either way
-    return { g, ifFav, ifDog, stake: Math.abs(ifFav - ifDog), st: gameState(g, S.live, S.week.research) };
+    const st = gameState(g, S.live, S.week.research); if (st.state === 'void') return null;   // called off: decides nothing
+    return { g, ifFav, ifDog, stake: Math.abs(ifFav - ifDog), st };
   }).filter(Boolean).sort((x, y) => (x.st.state === 'post') - (y.st.state === 'post') || y.stake - x.stake) : [];
   const swingTxt = n => (n > 0 ? `<b>${nA} +${n}</b>` : n < 0 ? `<b>${nB} +${-n}</b>` : '<span class="muted">even</span>');
   // Finished games collapse to one line: who banked what from the games that split them.

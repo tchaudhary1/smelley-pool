@@ -578,3 +578,8 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 .calculating { color: var(--ink-3); animation: calcPulse 1.2s ease-in-out infinite; }
 @keyframes calcPulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .calculating { animation: none; } }
+
+/* Games called off (hurricane etc.): postponed / canceled */
+.void-tag { color: var(--rust); font-weight: 700; letter-spacing: .04em; }
+.score.void-tag { font-size: 14px; }
+.cf.void { background: var(--panel-2); color: var(--ink-3); text-decoration: line-through; }

@@ -59,11 +59,12 @@ Deno.serve(async req => {
     if (p) {
       const ev: any = { g, st, cushion };
       ev.final = st.state === 'post' && p.state !== 'post';
+      ev.voided = st.state === 'void' && p.state !== 'void';   // postponed / canceled (e.g. a hurricane)
       ev.scored = st.state === 'in' && (cur.fav !== p.fav || cur.dog !== p.dog);
       ev.coverChanged = st.state !== 'pre' && p.cover && cur.cover && cur.cover !== p.cover && cur.cover !== 'push';
       ev.sweat = st.state === 'in' && !p.sweat && cur.period >= 4 && (cur.clock ?? 900) <= 360 && cushion != null && Math.abs(cushion) <= 7;
       if (ev.sweat) cur.sweat = true;
-      if (ev.final || ev.scored || ev.coverChanged || ev.sweat) changes.push(ev);
+      if (ev.final || ev.scored || ev.coverChanged || ev.sweat || ev.voided) changes.push(ev);
     }
     if (!p || JSON.stringify(p) !== JSON.stringify(cur)) writes.push({ game_id: g.espn.id, state: cur, updated_at: new Date().toISOString() });
   }
@@ -83,7 +84,9 @@ Deno.serve(async req => {
       const send = (n: any) => deliver(person, { tag, url, ...n }).then(s => sent.push(`${person.key}:${n.ref}:${s}`));
       for (const m of mine) {
         const covering = cushion != null && (m.side === 'fav' ? cushion > 0 : cushion < 0);
-        if (ev.final && P.picks.final)
+        if (ev.voided)
+          await send({ kind: 'pick', ref: `void:${id}`, title: `${st.detail}: ${nice(g.fav)} v ${nice(g.dog)}`, body: `The league allows a swap: send the commissioner a replacement for your ${m.conf} on ${nice(m.side === 'fav' ? g.fav : g.dog)}.`, ttl: 24 * 3600, urgent: true });
+        else if (ev.final && P.picks.final)
           await send({ kind: 'pick', ref: `final:${id}`, title: `${line(g, m.side)} ${covering ? 'covered ✅' : 'didn’t cover ❌'}`, body: `Final: ${score(g, st)}. Your ${m.conf} ${covering ? `point${m.conf > 1 ? 's are' : ' is'} banked` : `point${m.conf > 1 ? 's are' : ' is'} gone`}.`, ttl: 6 * 3600 });
         else if (ev.coverChanged && P.picks.flips && (st.period ?? 0) >= 2)
           await send({ kind: 'pick', ref: `flip:${id}:${st.favScore}-${st.dogScore}`, title: `Cover flip: your ${m.conf} on ${nice(m.side === 'fav' ? g.fav : g.dog)} is ${covering ? 'now covering' : 'no longer covering'}`, body: `${score(g, st)} (${st.detail}).`, ttl: 600, urgent: true });
@@ -110,7 +113,7 @@ Deno.serve(async req => {
     const finalIds = new Set(changes.filter(ev => ev.final).map(ev => ev.g.espn.id));
     for (const person of people) {
       const gr = graded.get(person.key); if (!person.prefs.family.myWeek || !gr) continue;
-      const done = gr.rows.every((r: any) => r.missing || r.st?.state === 'post');
+      const done = gr.rows.every((r: any) => r.missing || r.st?.state === 'post' || r.st?.state === 'void');
       const lastWasJustNow = gr.rows.some((r: any) => r.g && finalIds.has(r.g.espn?.id));
       if (done && lastWasJustNow)
         await deliver(person, { kind: 'family', ref: `week:${week.week}`, title: `Week ${week.week} is in the books: ${gr.banked} points`, body: `All your picks are final. See where it lands on the Game Day tab.`, url: './#gameday', tag: 'week', ttl: 24 * 3600 }).then(s => sent.push(`${person.key}:week:${s}`));
