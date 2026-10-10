@@ -503,7 +503,7 @@ const WEB_RULES = `\n\nYou may use web search for this one, because it asks abou
 // Web answers sometimes append a sources list or markdown links: keep the words, drop the links.
 const stripLinks = t => t.replace(/\n+\s*\**sources?\**:[\s\S]*$/i, '').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1').replace(/https?:\/\/\S+/g, '').trim();
 
-function askClaude(prompt, system = SYSTEM, { web = false } = {}) {
+function askClaude(prompt, system = SYSTEM, { web = false, timeoutMs = null } = {}) {
   return new Promise((resolve, reject) => {
     const tools = web ? ['--tools', 'WebSearch,WebFetch', '--allowedTools', ['WebSearch', ...NEWS_SITES.map(d => `WebFetch(domain:${d})`)].join(',')] : ['--tools', ''];
     const args = ['-p', ...tools, '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands',
@@ -512,7 +512,7 @@ function askClaude(prompt, system = SYSTEM, { web = false } = {}) {
     const env = Object.fromEntries(keep.filter(k => process.env[k]).map(k => [k, process.env[k]]));
     const p = spawn(CLAUDE_BIN, args, { cwd: SANDBOX, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true });
     let out = '', err = '';
-    const t = setTimeout(() => { p.kill(); reject(new Error('claude timed out')); }, web ? 180e3 : 90e3);
+    const t = setTimeout(() => { p.kill(); reject(new Error('claude timed out')); }, timeoutMs ?? (web ? 180e3 : 90e3));
     p.stdout.on('data', d => out += d); p.stderr.on('data', d => err += d);
     p.on('error', reject);
     p.on('close', code => { clearTimeout(t); code === 0 ? resolve(out.trim()) : reject(new Error(`claude exited ${code}: ${err.slice(0, 300)}`)); });
@@ -716,7 +716,7 @@ async function tick() {
   const kind = isQA ? 'qa' : pvE && used.includes(pvE) ? 'preview' : rcE && used.includes(rcE) ? 'recap' : used.map(e => e.kind || '?').join('+');
   const tPost = Date.now(); let claudeMs = 0, rewrites = 0;
   try {
-    const draft = p => { const t0 = Date.now(); return (isPreview ? askClaude(p, system).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t))).finally(() => { claudeMs += Date.now() - t0; }); };
+    const draft = p => { const t0 = Date.now(); return (isPreview ? askClaude(p, system, { timeoutMs: 240e3 }).then(t => clean(t, 1400, true)) : isQA ? askClaude(p, system, { web: useWeb }).then(t => clean(useWeb ? stripLinks(t) : t, 600)) : askClaude(p).then(t => clean(t))).finally(() => { claudeMs += Date.now() - t0; }); };
     let text = await draft(prompt);
     // Safety net: wrong pronoun for a family member, or any he/she for someone whose pronouns we don't know: rewrite once.
     for (let tries = 0; tries < 2; tries++) {
