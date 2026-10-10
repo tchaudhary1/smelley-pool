@@ -630,7 +630,7 @@ async function tick() {
 
   if (P.settings.commentary === false && !DRY) {   // dry runs ignore the mute (they never post)
     if (!TEST_ASK) await mentions(me.id);   // muted: tags are skipped, not queued
-    if (fresh.length) log(`muted: skipping ${fresh.length} events`); fresh.filter(e => !e.preview && !e.recap).forEach(e => state.done[e.id] = true); save(); return anyLive ? 60 : 300; }
+    if (fresh.length) log(`muted: skipping ${fresh.length} events`); fresh.filter(e => !e.preview && !e.recap).forEach(e => state.done[e.id] = true); save(); return (anyLive || TICK.espnFail) ? 60 : 300; }
 
   const now = Date.now();
   state.posts = state.posts.filter(t => now - t < 3600e3);
@@ -704,7 +704,7 @@ async function tick() {
     ask = askPlan(P, used);
     if (ask) { prompt += `\n\nThis time, end the message with ONE short, playful question to ${ask.names.join(' and ')}${ask.civil ? ' (they are on opposite sides of this game)' : ''} that invites a reply in the chat. They've already made their picks, so ask something they haven't told us: how they're feeling about their pick, a score prediction, a victory-dance plan, or a bit of friendly trash talk for whoever's on the other side (or, for the whole family, who they're rooting for). Address them by first name. Be a cheerleader, nothing about money or betting more. The whole message can be up to 300 characters.`; log(`asking: ${ask.names.join(', ')} (${ask.event})`); }
     const g = P.week.games.find(x => x.espn?.id === top[0].gid); gameNo = g?.fav_no ?? null;
-  } else return anyLive ? 60 : 300;
+  } else return (anyLive || TICK.espnFail) ? 60 : 300;
 
   // The motto and crest are a spice, not a sign-off: regular posts may use them at most once every
   // 3 hours (the weekend preview and weekly recap may always close with the motto).
@@ -738,7 +738,7 @@ async function tick() {
   } catch (err) { log('error:', err.message); TOTALS.errors++; metric('error', { where: 'post', kind, message: String(err.message).slice(0, 300), claudeMs }); }
   typing(false);
   save();
-  return anyLive ? 60 : 300;
+  return (anyLive || TICK.espnFail) ? 60 : 300;
 }
 
 // Between ticks, look for a new tag every 10 seconds and answer right away.
