@@ -2,6 +2,8 @@ import { FAMILY, BOT, CURRENT_WEEK, MOTTO, MOTTO_EN, REACTIONS, HISTORY_SEASONS,
 import { DEFAULT_PREFS, LABELS, mergePrefs } from './notify.js';
 import * as db from './data.js';
 import { checkFile, parsePickRows, diffPicks, parseTotalsRows, diffTotals } from './upload.js';
+import { parseOdds, sheetInfo, oddsProblems, weekDates, matchEspn } from './odds.js';
+import { docText } from './doc.js';
 import { HELP } from './help.js';
 import { leagueStorylines } from './storylines.js';
 import { fetchGameNews, lineMove, lineMoveText } from './news.js';
@@ -1693,6 +1695,12 @@ function viewAdmin() {
       <div class="panel insight"><h3>📊 Yearly totals (.xls)</h3><p>The commissioner's "Yearly totals through Week N" workbook. Replaces the standings.</p>
         <div class="drop" id="dropTotals" style="margin-top:10px">Drop the totals .xls here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileTotals" accept=".xls,.xlsx" hidden></label></div><div id="totalsOut" class="note"></div></div>
     </div>
+    <div class="panel insight" style="margin-top:12px"><h3>🗓️ Next week's odds sheet (.doc)</h3><p>The commissioner's weekly odds sheet. Drop it here to set up the new week: every game is matched to ESPN and you get a preview before anything is saved. An existing week is never overwritten.</p>
+      <div class="drop" id="dropOdds" style="margin-top:10px">Drop the odds .doc here or <label style="text-decoration:underline;cursor:pointer">browse<input type="file" id="fileOdds" accept=".doc,.txt" hidden></label></div>
+      <details style="margin-top:8px"><summary class="muted" style="cursor:pointer">File won't read? Paste the sheet's text instead</summary>
+        <textarea id="oddsPaste" rows="6" style="width:100%;margin-top:6px" placeholder="Open the .doc, select all, copy, and paste here"></textarea>
+        <button class="btn ghost" id="oddsPasteGo" style="margin-top:6px">Read pasted text</button></details>
+      <div id="oddsOut" class="note"></div></div>
     ${previewCard()}
     ${recapCard()}
     ${chatAdminCard()}
@@ -1700,10 +1708,11 @@ function viewAdmin() {
       <p>Color commentary in Smack Talk when family picks swing, from the commentator program running on Tarun's PC. It only posts while that program is running.</p>
       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600"><input type="checkbox" id="commOn" ${S.settings?.commentary === false ? '' : 'checked'}> Commentary on</label>
       <div id="commOut" class="note"></div></div>
-    <p class="note">New week odds sheets (.doc) are built with <code>tools/build-week.mjs</code> and pushed with <code>tools/push-data.mjs</code>. Watson or Claude can run that.</p>`;
+`;
   const wire = (drop, input, fn) => { const d = $(drop); d.ondragover = e => { e.preventDefault(); d.classList.add('over'); }; d.ondragleave = () => d.classList.remove('over');
     d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); fn([...e.dataTransfer.files]); }; $(input).onchange = e => fn([...e.target.files]); };
-  wire('#dropPicks', '#filePicks', uploadPicks); wire('#dropTotals', '#fileTotals', uploadTotals);
+  wire('#dropPicks', '#filePicks', uploadPicks); wire('#dropTotals', '#fileTotals', uploadTotals); wire('#dropOdds', '#fileOdds', uploadOdds);
+  $('#oddsPasteGo').onclick = () => { const t = $('#oddsPaste').value; if (t.trim()) oddsPreview(t, 'pasted text'); };
   bindChatAdmin();
   $('#pvGo')?.addEventListener('click', async () => { const out = $('#pvOut'); $('#pvGo').disabled = true;
     try { const latest = await db.loadDataset('settings') || S.settings; S.settings = { ...latest, previewWeek: S.week.week }; await db.saveDataset('settings', S.settings);
@@ -1718,8 +1727,9 @@ function viewAdmin() {
       out.textContent = e.target.checked ? 'On. The Commentator will chime in.' : 'Muted. The Commentator stays quiet until you turn it back on.'; }
     catch (err) { out.textContent = 'Failed: ' + err.message; e.target.checked = !e.target.checked; } };
 }
+const loadXLSX = () => import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
 async function sheetRows(file) {
-  const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+  const XLSX = await loadXLSX();
   const wb = XLSX.read(await file.arrayBuffer(), { cellFormula: false, cellHTML: false }); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, blankrows: false, defval: '' });
 }
 // Upload flow: read -> validate -> preview (new / changed / unchanged / rejected) -> Confirm -> merge into
@@ -1763,6 +1773,93 @@ async function uploadPicks(files) {
       } catch (err) { out.innerHTML = `<span class="err">Save failed: ${esc(err.message)}</span>`; }
     };
   } catch (err) { out.innerHTML = `<span class="err">Couldn't read that file: ${esc(err.message)}</span>`; }
+}
+
+// Odds sheet -> new week. Read the .doc (or pasted text) -> parse -> match to ESPN -> preview -> Publish.
+// Publishing creates week N and (by default) makes it the current week. An existing week is never
+// overwritten, only offered as "make it the current week".
+const MAX_ODDS_BYTES = 2 * 1024 * 1024;
+async function uploadOdds(files) {
+  const out = $('#oddsOut');
+  if (files.length !== 1) { out.innerHTML = 'Drop one odds sheet at a time.'; return; }
+  const f = files[0];
+  if (/\.docx$/i.test(f.name)) { out.innerHTML = `<span class="err">That's a .docx. Save it as "Word 97-2003 Document (.doc)", or paste its text below.</span>`; return; }
+  if (!/\.(doc|txt)$/i.test(f.name)) { out.innerHTML = `<span class="err">${esc(f.name)}: the odds sheet should be a Word .doc.</span>`; return; }
+  if (!f.size || f.size > MAX_ODDS_BYTES) { out.innerHTML = `<span class="err">${esc(f.name)}: ${f.size ? 'too big for an odds sheet' : 'file is empty'}.</span>`; return; }
+  out.innerHTML = 'Reading…';
+  try {
+    const text = /\.txt$/i.test(f.name) ? await f.text() : docText((await loadXLSX()).CFB, await f.arrayBuffer());
+    await oddsPreview(text, f.name);
+  } catch (err) { out.innerHTML = `<span class="err">Couldn't read ${esc(f.name)}: ${esc(err.message)}. Try pasting the sheet's text below.</span>`; }
+}
+const etDate = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+// The new week's Thursday: the current week's Thursday kickoff plus 7 days per week ahead, else the coming Thursday.
+function guessThursday(n) {
+  const thu = (S.week?.games || []).find(g => g.day === 'Thursday' && g.espn?.kickoff);
+  if (thu && S.week.week) { const d = new Date(etDate(thu.espn.kickoff) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 7 * (n - S.week.week)); return d.toISOString().slice(0, 10); }
+  const d = new Date(); d.setDate(d.getDate() + ((4 - d.getDay() + 7) % 7)); return etDate(d);
+}
+let ALIASES = null;
+const aliasesJson = async () => ALIASES ??= await (await fetch(new URL('./aliases.json', import.meta.url))).json();
+
+async function oddsPreview(text, source) {
+  const out = $('#oddsOut'); out.innerHTML = 'Reading…';
+  const games = parseOdds(text), info = sheetInfo(text), cur = S.week?.week || CURRENT_WEEK;
+  if (!games.length) { out.innerHTML = `<span class="err">No games found. Is this the week's odds sheet?</span>`; return; }
+  const n = info.week || cur + 1;
+  const existing = await db.loadDataset(`week${n}`);
+  if (existing) {
+    const settings = await db.loadDataset('settings') || S.settings || {};
+    out.innerHTML = `${pill('same', 'already loaded')} Week ${n} is already set up (${existing.games?.length || 0} games, ${Object.keys(existing.picks || {}).length} pick sheets). It isn't overwritten from here.
+      ${settings.currentWeek === n ? `It's the current week.` : `<br><button class="btn gold" id="oddsCur" style="margin-top:10px">Make week ${n} the current week</button>`}`;
+    $('#oddsCur')?.addEventListener('click', () => makeCurrent(n));
+    return;
+  }
+  const problems = oddsProblems(games);
+  let thursday = guessThursday(n);
+  const draw = async () => {
+    out.innerHTML = `<p class="muted">Week ${n}: ${games.length} games from ${esc(source)}. Matching to ESPN…</p>`;
+    let m; try { m = await matchEspn(games, weekDates(thursday), await aliasesJson()); }
+    catch (err) { out.innerHTML = `<span class="err">ESPN lookup failed: ${esc(err.message)}. Try again in a minute.</span>`; return; }
+    const groups = {}; for (const g of games) { const k = `${g.day || '?'} ${g.league === 'NFL' ? 'NFL' : 'college'}`; groups[k] = (groups[k] || 0) + 1; }
+    const list = (h, xs, cls = '') => xs.length ? `<h4 style="margin:10px 0 4px">${h}</h4><div class="${cls}">${xs.map(esc).join('<br>')}</div>` : '';
+    const tb = (info.tiebreakerText || '').toLowerCase();
+    const tbGame = tb && games.find(g => tb.includes(g.fav.toLowerCase()) && tb.includes(g.dog.toLowerCase()));
+    const flagged = m.unmatched.length || m.wrongDay.length || problems.length || !info.week;
+    out.innerHTML = `<div class="upl-sum">${pill('new', `week ${n}: ${games.length} games`)} ${pill(m.unmatched.length ? 'bad' : 'same', `${games.length - m.unmatched.length}/${games.length} found on ESPN`)} ${problems.length ? pill('bad', problems.length + ' to check') : ''}</div>
+      ${info.week ? '' : `<p class="err">The sheet doesn't say which week it is; assuming week ${n}.</p>`}
+      <div class="tbl-wrap"><table class="upl"><tbody>${Object.entries(groups).map(([k, v]) => `<tr><td class="l">${esc(k)}</td><td class="num">${v} game${v === 1 ? '' : 's'}</td></tr>`).join('')}</tbody></table></div>
+      <p style="margin-top:8px">Pool numbers ${games[0].fav_no}–${games.at(-1).dog_no}. Tiebreaker: ${info.tiebreakerText ? esc(info.tiebreakerText) + (tbGame ? ` (#${tbGame.fav_no}–${tbGame.dog_no})` : ' <span class="err">(no game on the sheet matches that)</span>') : '<span class="err">not found on the sheet</span>'}.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px">Thursday of week ${n}: <input type="date" id="oddsThu" value="${thursday}"></label>
+      ${m.unmatched.length > games.length / 2 ? `<p class="err">Most games weren't found on ESPN. Is that Thursday right? Change it and the games are matched again.</p>` : ''}
+      ${list('Not found on ESPN (these show without live scores)', m.unmatched.map(g => `#${g.fav_no} ${g.fav} v ${g.dog} (${g.day} ${g.league})`), 'err')}
+      ${list('ESPN has these on a different day than the sheet', m.wrongDay.map(x => `#${x.g.fav_no} ${x.g.fav} v ${x.g.dog}: sheet says ${x.g.day}, ESPN says ${x.day}`))}
+      ${list('Sheet oddities', problems)}
+      <label style="display:flex;gap:8px;margin-top:10px"><input type="checkbox" id="oddsMake" checked> Make week ${n} the current week now (untick if week ${cur} is still being played)</label>
+      ${flagged ? `<label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="oddsAck"> I've checked the flagged items above and want to publish anyway</label>` : ''}
+      <button class="btn gold" id="oddsGo" style="margin-top:10px">Publish week ${n}</button> <button class="btn ghost" id="oddsNo" style="margin-top:10px">Cancel</button>`;
+    $('#oddsThu').onchange = e => { if (e.target.value) { thursday = e.target.value; draw(); } };
+    $('#oddsNo').onclick = () => { out.innerHTML = 'Cancelled. Nothing was saved.'; };
+    $('#oddsGo').onclick = async () => {
+      if ($('#oddsAck') && !$('#oddsAck').checked) { alert('Please tick the box to confirm the flagged items.'); return; }
+      const make = $('#oddsMake').checked; $('#oddsGo').disabled = true;
+      try {
+        if (await db.loadDataset(`week${n}`)) { out.innerHTML = `<span class="err">Week ${n} was saved meanwhile (another tab or person). Nothing was overwritten.</span>`; return; }
+        await db.saveDataset(`week${n}`, { season: S.week?.season || new Date().getFullYear(), week: n, built: new Date().toISOString(), source: String(source).slice(0, 80),
+          tiebreakerText: info.tiebreakerText, games, picks: {}, shadow: null, research: null });
+        if (make) await makeCurrent(n);
+        else out.innerHTML = `✅ Saved week ${n} (${games.length} games). When week ${cur} is done, drop the sheet again to make week ${n} the current week.`;
+      } catch (err) { out.insertAdjacentHTML('beforeend', `<p class="err">Save failed: ${esc(err.message)}</p>`); if ($('#oddsGo')) $('#oddsGo').disabled = false; }
+    };
+  };
+  await draw();
+}
+async function makeCurrent(n) {
+  const out = $('#oddsOut');
+  const latest = await db.loadDataset('settings') || S.settings || {};
+  S.settings = { ...latest, currentWeek: n }; await db.saveDataset('settings', S.settings);
+  out.innerHTML = `✅ Week ${n} is now the current week. Everyone switches over on their next refresh. Reloading this page…`;
+  setTimeout(() => location.reload(), 2500);
 }
 
 async function uploadTotals(files) {

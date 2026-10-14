@@ -16,7 +16,14 @@ Do this before any other roadmap item, so a fresh agent (or person) can run, fix
 4. **Backup:** a script that exports every Supabase dataset and the chat to the private repo, run
    weekly (the free plan has no restore points).
 
-## Second priority: odds sheet upload on the Upload tab (agreed Sep 29 2026)
+## Done Oct 13 2026: odds sheet upload on the Upload tab (agreed Sep 29 2026)
+Built as planned below, with one change: the .doc is read by our own small reader (`js/doc.js`, on
+SheetJS's CFB) rather than word-extractor, and `tools/build-week.mjs` now uses it too. Weeks 4–6 rebuilt
+from their original .doc files match what was loaded exactly (every game, spread, day and ESPN id).
+"Publish" can leave the current week alone (for a Monday night still in progress); dropping the sheet
+again then offers "Make week N the current week". Help topic "Starting a new week" covers it.
+
+### Original plan
 Today a new week's odds sheet (.doc) is built on the PC (`tools/build-week.mjs`) and pushed by hand.
 Add an "Odds sheet (.doc)" drop box to the Upload tab that does it in the browser:
 1. Read the .doc with SheetJS's file-container reader (already loaded for .xls pick sheets) and run the

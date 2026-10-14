@@ -252,7 +252,7 @@ export const HELP = [
   ]},
   { group: 'For Tarun (admin)', admin: true, topics: [
     { id: 'upload', title: 'Uploading picks and standings', keys: 'upload admin xls picks totals workbook validate duplicate', body: `
-      <p>On the <b>Upload</b> tab, drop in pick sheets (one or several <code>.xls</code> files, including a whole-league sheet) or the yearly totals workbook. Nothing is saved until you check the preview and tap <b>Save</b>.</p>
+      <p>On the <b>Upload</b> tab, drop in pick sheets (one or several <code>.xls</code> files, including a whole-league sheet), the yearly totals workbook, or next week's odds sheet (see <b>Starting a new week</b>). Nothing is saved until you check the preview and tap <b>Save</b>.</p>
       <ul><li>Each entry is marked <b>new</b>, <b>changed</b> (with exactly what changed), <b>already loaded</b> (identical, skipped) or <b>rejected</b> (with the reason).</li>
       <li>Pick checks: 10 picks, confidences 10–1, every pool number on this week's sheet, no two picks from the same game, no duplicate names, tiebreaker 0–200.</li>
       <li>Totals checks: scores 0–55, no duplicate names. Past-week score changes and entries that would disappear are flagged, and you have to tick a box to confirm them.</li>
@@ -266,8 +266,15 @@ export const HELP = [
       <ul><li><b>View</b> opens an archive read-only. <b>Download</b> saves it as a text file.</li>
       <li><b>Delete</b> removes an archive and its reactions permanently. You have to type DELETE, and it can't be undone, so download it first if there's any chance you'll want it.</li>
       <li>Only you can see archives. Family members only ever see the live chat.</li></ul>` },
-    { id: 'newweek', title: 'Starting a new week', keys: 'new week odds doc build push', body: `
-      <p>The weekly odds sheet (<code>.doc</code>) is loaded from the computer with <code>tools/build-week.mjs</code> and <code>npm run push</code> (see the README), or ask Claude or Watson to do it. Set <code>currentWeek</code> in <code>local-data/settings.json</code> and push it too. Cover chances come from the live market lines, so there's nothing else to prepare. After that, pick sheets and totals go through the Upload tab.</p>` },
+    { id: 'newweek', title: 'Starting a new week (the odds sheet)', keys: 'new week odds doc sheet upload publish current week espn tiebreaker', body: `
+      <p>Drop the commissioner's weekly odds sheet (<code>.doc</code>) on the <b>🗓️ Next week's odds sheet</b> card on the Upload tab. Nothing is saved until you tap <b>Publish week N</b>.</p>
+      <ul><li>The preview shows the week number (from the sheet's "WEEK N" heading), the games by day and league, the pool numbers, and the tiebreaker game.</li>
+      <li>Every game is matched to ESPN for live scores. The week's <b>Thursday</b> is filled in for you; if most games aren't found, the date is probably off, so change it and the games are matched again.</li>
+      <li>Flagged: games ESPN doesn't have, games ESPN lists on a different day than the sheet, gaps in the pool numbers, and spreads that aren't X½. To publish anyway, tick the box to confirm.</li>
+      <li><b>Make week N the current week now</b> is ticked by default. Untick it if the current week is still being played (a Monday night game); drop the sheet again later and it offers <b>Make week N the current week</b>.</li>
+      <li>A week that's already set up is never overwritten from here.</li>
+      <li>If the file won't read (a <code>.docx</code>, or a damaged file), open it, copy all the text, and paste it under <b>File won't read?</b></li></ul>
+      <p>Cover chances come from the live market lines, so there's nothing else to prepare. After that, pick sheets and totals go through the Upload tab as usual. (The computer route, <code>tools/build-week.mjs</code>, still works and uses the same reader.)</p>` },
     { id: 'addpeople', title: 'Adding people, and running the Commentator', keys: 'invite add user commentator mute start run', body: `
       <p>Add family members by listing them in <code>users.local.json</code> and running <code>npm run users</code> (an invite email, or a starting password so no email is needed).</p>
       <p><b>The Commentator</b> runs with <code>npm run commentator</code> on the PC and is muted or unmuted with the toggle on the Upload tab. Its log is <code>commentator.log</code>. It only calls Claude when it has something to post: about 1,300 tokens per post, and nothing while idle.</p>` },

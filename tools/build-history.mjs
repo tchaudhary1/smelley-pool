@@ -9,14 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import XLSX from 'xlsx';
 import WordExtractor from 'word-extractor';
-import { parseOdds } from './odds.mjs';
+import { parseOdds } from '../js/odds.js';
 import { matchNames } from '../js/names.js';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => { if (a.startsWith('--')) acc.push([a.slice(2), arr[i + 1]]); return acc; }, []));
 const DIR = args.dir, SEASON = +args.season, START = new Date(args.start + 'T12:00:00Z');
 if (!DIR || !SEASON || isNaN(START)) throw new Error('usage: --dir <folder> --season <year> --start <YYYY-MM-DD of week-1 Thursday>');
 const files = fs.readdirSync(DIR);
-const ALIAS = JSON.parse(fs.readFileSync('tools/aliases.json', 'utf8'));
+const ALIAS = JSON.parse(fs.readFileSync('js/aliases.json', 'utf8'));
 
 // ---------------------------------------------------------------- odds sheets
 const docText = async f => (await new WordExtractor().extract(path.join(DIR, f))).getBody();

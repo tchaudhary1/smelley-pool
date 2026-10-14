@@ -9,8 +9,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import XLSX from 'xlsx';
-import WordExtractor from 'word-extractor';
-import { parseOdds as sharedParseOdds } from './odds.mjs';
+import { docText } from '../js/doc.js';
+import { parseOdds, sheetInfo, matchEspn } from '../js/odds.js';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => {
   if (a.startsWith('--')) acc.push([a.slice(2), arr[i + 1]]); return acc; }, []));
@@ -21,70 +21,9 @@ if (!WEEK) throw new Error('--week required');
 // ---------- odds sheet ----------
 async function oddsText(file) {
   if (file.endsWith('.txt')) return fs.readFileSync(file, 'utf8');
-  const doc = await new WordExtractor().extract(file);
-  return doc.getBody();
+  return docText(XLSX.CFB, fs.readFileSync(file));   // the same .doc reader the Upload tab uses
 }
-// The shared parser (tools/odds.mjs) handles the sheets' typos; this one is kept only as a cross-check.
-function parseOdds(text) {
-  const games = sharedParseOdds(text);
-  const tb = text.match(/Tie Breaker[^\n]*?between ([^.]+)\./i);
-  return { games, tiebreakerText: tb ? tb[1].trim() : null };
-}
-function parseOddsOld(text) {
-  const games = []; let section = '';
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/ /g, ' ');
-    const hdr = line.match(/^\s*(\w+)'s\s+(NFL|College)\s+Football\s+Games?/i);
-    if (hdr) { section = { day: hdr[1], league: /NFL/i.test(hdr[2]) ? 'NFL' : 'CFB' }; continue; }
-    const re = /(\d{1,3})\.\s+(.+?)\s+(\d+)(½?)\s+(\d{1,3})\.\s+(.+?)(?=\s+\d{1,3}\.\s|\s*$)/g;
-    let m;
-    while ((m = re.exec(line))) {
-      const [, fno, fav, whole, half, dno, dog] = m;
-      const spread = Number(whole) + (half ? 0.5 : 0);
-      const favT = fav.trim(), dogT = dog.trim();
-      const isHome = s => s === s.toUpperCase() && /[A-Z]/.test(s);
-      games.push({ fav_no: +fno, dog_no: +dno, fav: favT, dog: dogT, spread,
-        home: isHome(favT) ? 'fav' : isHome(dogT) ? 'dog' : null,
-        day: section.day, league: section.league });
-    }
-  }
-  const tb = text.match(/Tie Breaker[^\n]*?between ([^.]+)\./i);
-  return { games, tiebreakerText: tb ? tb[1].trim() : null };
-}
-
-// ---------- ESPN matching ----------
-const ALIAS = JSON.parse(fs.readFileSync(new URL('./aliases.json', import.meta.url), 'utf8'));
-const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.'’]/g, '').replace(/&/g, 'and').replace(/\s+/g, ' ').trim();
-// Sheet capitalization flips with the home team (OHIO ST. vs Ohio St.), so aliases match any case.
-const ALIAS_CI = Object.fromEntries(Object.entries(ALIAS).map(([lg, m]) => [lg, Object.fromEntries(Object.entries(m).map(([k, v]) => [k.toLowerCase(), v]))]));
-function teamKeys(t) {
-  return [t.location, t.displayName, t.shortDisplayName, t.abbreviation, t.name && `${t.location} ${t.name}`]
-    .filter(Boolean).map(norm);
-}
-async function espnEvents(league, dates) {
-  const sport = league === 'NFL' ? 'nfl' : 'college-football';
-  const out = [];
-  for (const d of dates) {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/football/${sport}/scoreboard?dates=${d}&limit=400${league === 'CFB' ? '&groups=80' : ''}`;
-    const r = await fetch(url); const j = await r.json();
-    for (const e of j.events || []) out.push({ e, sport });
-  }
-  return out;
-}
-function findEvent(events, a, b, league) {
-  const ka = norm(ALIAS_CI[league]?.[a.toLowerCase()] ?? a), kb = norm(ALIAS_CI[league]?.[b.toLowerCase()] ?? b);
-  for (const { e, sport } of events) {
-    const cs = e.competitions[0].competitors;
-    const hit = k => cs.find(c => teamKeys(c.team).includes(k));
-    const ca = hit(ka), cb = hit(kb);
-    if (ca && cb && ca !== cb) return { id: e.id, sport, kickoff: e.date,
-      espnFav: ca.team.abbreviation, espnDog: cb.team.abbreviation,
-      favLogo: ca.team.logo, dogLogo: cb.team.logo,
-      favColor: ca.team.color, dogColor: cb.team.color,
-      venue: e.competitions[0].venue?.fullName, neutral: e.competitions[0].neutralSite };
-  }
-  return null;
-}
+const ALIAS = JSON.parse(fs.readFileSync(new URL('../js/aliases.json', import.meta.url), 'utf8'));
 
 // ---------- picks ----------
 function parsePicksFile(file) {
@@ -126,18 +65,14 @@ function parseCsv(file) {
 }
 
 // ---------- main ----------
-const { games, tiebreakerText } = parseOdds(await oddsText(args.odds));
+const text = await oddsText(args.odds);
+const games = parseOdds(text), { tiebreakerText } = sheetInfo(text);
 console.log(`odds: ${games.length} games (${games[0]?.fav_no}–${games.at(-1)?.dog_no})`);
 
 const dates = [...new Set((args.dates || '').split(',').filter(Boolean))];
 if (!dates.length) throw new Error('--dates YYYYMMDD,YYYYMMDD,... required (every day in the pool week)');
-const evNFL = await espnEvents('NFL', dates), evCFB = await espnEvents('CFB', dates);
-const unmatched = [];
-for (const g of games) {
-  const ev = findEvent(g.league === 'NFL' ? evNFL : evCFB, g.fav, g.dog, g.league);
-  if (ev) g.espn = ev; else unmatched.push(`${g.fav_no} ${g.fav} v ${g.dog}`);
-}
-console.log(`espn matched ${games.length - unmatched.length}/${games.length}`, unmatched.length ? unmatched : '');
+const { unmatched } = await matchEspn(games, dates, ALIAS);
+console.log(`espn matched ${games.length - unmatched.length}/${games.length}`, unmatched.length ? unmatched.map(g => `${g.fav_no} ${g.fav} v ${g.dog}`) : '');
 
 const picks = {};
 for (const f of (args.picks || '').split(',').filter(Boolean)) {

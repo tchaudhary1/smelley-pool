@@ -25,6 +25,13 @@ Supabase's built-in email sender allows only a few emails per hour. For more, ad
 
 ## Every week
 
+Tarun's login has an **Upload** tab. Dropping the commissioner's odds sheet (`.doc`) there sets up the
+new week: the games are matched to ESPN, a preview flags anything odd, and **Publish week N** saves it and
+makes it the current week (an existing week is never overwritten). Pick sheets and the yearly-totals
+workbook go in the same way, so no command line is needed.
+
+The command-line route still works, using the same `.doc` reader (`js/doc.js`), parser and ESPN matcher (`js/odds.js`):
+
 ```bash
 node tools/build-week.mjs --week 5 --odds inputs/week5/Week_5_Odds.doc \
   --picks "inputs/week5/*.xls" --totals inputs/Yearly_totals_through_Week_4.xls \
@@ -32,8 +39,6 @@ node tools/build-week.mjs --week 5 --odds inputs/week5/Week_5_Odds.doc \
 echo '{"currentWeek":5}' > local-data/settings.json
 npm run push
 ```
-
-Tarun's login also has an **Upload** tab. Dropping pick sheets or the yearly-totals workbook there updates everyone without the command line.
 
 ## Local preview
 
