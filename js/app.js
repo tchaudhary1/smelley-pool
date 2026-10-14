@@ -1834,6 +1834,7 @@ async function oddsPreview(text, source) {
       ${m.unmatched.length > games.length / 2 ? `<p class="err">Most games weren't found on ESPN. Is that Thursday right? Change it and the games are matched again.</p>` : ''}
       ${list('Not found on ESPN (these show without live scores)', m.unmatched.map(g => `#${g.fav_no} ${g.fav} v ${g.dog} (${g.day} ${g.league})`), 'err')}
       ${list('ESPN has these on a different day than the sheet', m.wrongDay.map(x => `#${x.g.fav_no} ${x.g.fav} v ${x.g.dog}: sheet says ${x.g.day}, ESPN says ${x.day}`))}
+      ${list('Matched despite a misspelled team (check these are right)', m.typos.map(x => `#${x.g.fav_no} ${x.g.fav} v ${x.g.dog}: ${x.typo}`))}
       ${list('Sheet oddities', problems)}
       <label style="display:flex;gap:8px;margin-top:10px"><input type="checkbox" id="oddsMake" checked> Make week ${n} the current week now (untick if week ${cur} is still being played)</label>
       ${flagged ? `<label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="oddsAck"> I've checked the flagged items above and want to publish anyway</label>` : ''}

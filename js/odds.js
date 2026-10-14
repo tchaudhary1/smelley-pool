@@ -81,33 +81,57 @@ export async function espnEvents(league, dates, fetchJson = getJson) {
 
 // aliases: { NFL: { sheetName: espnName }, CFB: {...} }. Sheet capitalization flips with the home
 // team (OHIO ST. vs Ohio St.), so aliases match any case.
+// If no game has both teams, a game where one team matches exactly and the other is within two
+// letters of the sheet's spelling counts (typos like "PHILADEPHIA"); it comes back with .typo set.
 export function findEvent(events, a, b, league, aliases = {}) {
   const ci = Object.fromEntries(Object.entries(aliases[league] || {}).map(([k, v]) => [k.toLowerCase(), v]));
   const ka = norm(ci[a.toLowerCase()] ?? a), kb = norm(ci[b.toLowerCase()] ?? b);
+  const shape = (e, sport, ca, cb) => ({ id: e.id, sport, kickoff: e.date,
+    espnFav: ca.team.abbreviation, espnDog: cb.team.abbreviation,
+    favLogo: ca.team.logo, dogLogo: cb.team.logo,
+    favColor: ca.team.color, dogColor: cb.team.color,
+    venue: e.competitions[0].venue?.fullName, neutral: e.competitions[0].neutralSite });
   for (const { e, sport } of events) {
     const cs = e.competitions[0].competitors;
     const hit = k => cs.find(c => teamKeys(c.team).includes(k));
     const ca = hit(ka), cb = hit(kb);
-    if (ca && cb && ca !== cb) return { id: e.id, sport, kickoff: e.date,
-      espnFav: ca.team.abbreviation, espnDog: cb.team.abbreviation,
-      favLogo: ca.team.logo, dogLogo: cb.team.logo,
-      favColor: ca.team.color, dogColor: cb.team.color,
-      venue: e.competitions[0].venue?.fullName, neutral: e.competitions[0].neutralSite };
+    if (ca && cb && ca !== cb) return shape(e, sport, ca, cb);
   }
-  return null;
+  const close = (k, c) => k.length >= 5 && teamKeys(c.team).some(t => editDistance(k, t) <= 2);
+  const typos = [];
+  for (const { e, sport } of events) {
+    const cs = e.competitions[0].competitors; if (cs.length !== 2) continue;
+    const exact = k => cs.find(c => teamKeys(c.team).includes(k));
+    const ca = exact(ka), cb = exact(kb);
+    if (ca && !cb) { const o = cs.find(c => c !== ca); if (close(kb, o)) typos.push({ ...shape(e, sport, ca, o), typo: `${b} → ${o.team.displayName}` }); }
+    if (cb && !ca) { const o = cs.find(c => c !== cb); if (close(ka, o)) typos.push({ ...shape(e, sport, o, cb), typo: `${a} → ${o.team.displayName}` }); }
+  }
+  return typos.length === 1 ? typos[0] : null;   // two candidates would be a guess, so neither
+}
+function editDistance(x, y) {
+  if (Math.abs(x.length - y.length) > 2) return 3;
+  let prev = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= y.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[y.length];
 }
 
 // Sets g.espn on every game ESPN lists for those dates. Returns the games it couldn't find, and the
-// ones whose kickoff (Eastern) falls on a different day than the sheet's heading says.
+// ones whose kickoff (Eastern) falls on a different day than the sheet's heading says, and the ones
+// matched despite a misspelled team name (worth a glance).
 export async function matchEspn(games, dates, aliases, fetchJson = getJson) {
   const ev = { NFL: await espnEvents('NFL', dates, fetchJson), CFB: await espnEvents('CFB', dates, fetchJson) };
-  const unmatched = [], wrongDay = [];
+  const unmatched = [], wrongDay = [], typos = [];
   for (const g of games) {
     const m = findEvent(ev[g.league] || [], g.fav, g.dog, g.league, aliases);
     if (!m) { delete g.espn; unmatched.push(g); continue; }
+    if (m.typo) { typos.push({ g, typo: m.typo }); delete m.typo; }
     g.espn = m;
     const day = new Date(m.kickoff).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' });
     if (g.day && day !== g.day) wrongDay.push({ g, day });
   }
-  return { unmatched, wrongDay };
+  return { unmatched, wrongDay, typos };
 }
