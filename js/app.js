@@ -16,7 +16,7 @@ import { $, $$, esc, pct, fmt1, fam, famByPool, avatar, etTime, etDay, ago, unti
   openModal, closeModal, modalHead, lineChart, stripPlot, histogram } from './ui.js';
 
 const S = { user: null, league: null, week: null, live: new Map(), msgs: [], reacts: [], tab: 'gameday',
-  slateFilter: 'family', famOnly: true, search: '', lastLive: null, timer: null };
+  slateFilter: 'family', famOnly: true, search: '', standSort: (() => { try { return localStorage.getItem('sp.standSort') || 'season'; } catch { return 'season'; } })(), lastLive: null, timer: null };
 
 // ============================================================ boot
 init();
@@ -490,9 +490,14 @@ function leagueTable() {
     const official = m.weeks.slice(0, weeks);
     const cur = m.weeks[curW - 1];
     const picks = S.week.picks?.[m.name];
-    const liveCur = cur == null && picks ? gradeEntry(picks, S.week, S.live).banked : null;
+    const gr = cur == null && picks ? gradeEntry(picks, S.week, S.live) : null;
+    const liveCur = gr ? gr.banked : null;
     const total = official.reduce((a, v) => a + (v || 0), 0);
-    return { name: m.name, f, weeks: official, cur: cur ?? liveCur, curLive: cur == null && liveCur != null, total, withCur: total + (cur == null ? (liveCur || 0) : 0) };
+    // Games left this week (live ones count, called-off ones don't) and the confidence points riding on them.
+    // Official week score: nothing left. No picks loaded: unknown (null).
+    const left = gr ? gr.rows.filter(x => ['pending', 'winning', 'losing'].includes(x.status)).length : cur != null ? 0 : null;
+    const inPlay = gr ? gr.maxPossible - gr.banked : cur != null ? 0 : null;
+    return { name: m.name, f, weeks: official, cur: cur ?? liveCur, curLive: cur == null && liveCur != null, total, withCur: total + (cur == null ? (liveCur || 0) : 0), left, inPlay };
   });
   const rk = ranks(rows.map(r => r.total)); rows.forEach((r, i) => r.rank = rk[i]);
   const wr = []; for (let w = 0; w < weeks; w++) { const rr = ranks(rows.map(r => r.weeks[w])); rows.forEach((r, i) => (r.wrank ??= [])[w] = rr[i]); wr.push(rr); }
@@ -681,18 +686,32 @@ function aroundTheLeague() {
       <div class="panel insight"><h3>🏠 The family</h3>${famRows}<p class="note">Arrows: season-rank change from last week. "wk": week ${L.week} score and rank that week.</p></div>
     </div>`;
 }
+const STAND_SORTS = { season: 'Season', week: 'This week (W#)', left: 'Games left', withweek: 'Season + this week' };
 function viewStandings() {
   const T = leagueTable(); const sh = shadowRow(); const cw = S.week.week;
   const wkCols = Array.from({ length: T.weeks }, (_, i) => `W${i + 1}`);
   const q = S.search.toLowerCase();
   const rows = T.rows.filter(r => (!S.famOnly || r.f) && (!q || r.name.toLowerCase().includes(q)));
+  // Sort: season rank (default), this week's points, games left this week, or season total + this week.
+  // The # column stays the season rank. Entries with nothing known for the week sort last.
+  const sort = STAND_SORTS[S.standSort] ? S.standSort : 'season';
+  const unknownLast = (a, b) => (a == null) - (b == null);
+  const by = {
+    week: (a, b) => unknownLast(a.cur, b.cur) || (b.cur ?? 0) - (a.cur ?? 0),
+    left: (a, b) => unknownLast(a.left, b.left) || (b.left ?? 0) - (a.left ?? 0) || (b.inPlay ?? 0) - (a.inPlay ?? 0),
+    withweek: (a, b) => b.withCur - a.withCur,
+  }[sort];
+  if (by) rows.sort((a, b) => by(a, b) || a.rank - b.rank || a.name.localeCompare(b.name));
+  const showLeft = T.rows.some(r => r.left > 0);
+  const withMode = sort === 'withweek', leadWith = Math.max(0, ...T.rows.map(r => r.withCur));
   const tr = r => `<tr class="row ${r.f ? 'fam' : ''}" style="--c:${r.f?.color || 'transparent'}" data-name="${esc(r.name)}">
     <td class="num">${r.rankLabel.replace("#", "")}</td><td class="l nm-cell">${r.f ? avatar(r.f) + ' ' : ''}${esc(r.name)}</td>
     ${r.weeks.map((v, i) => `<td class="num wk" title="Week rank ${r.wrank?.[i] ?? '–'}">${v ?? '–'}</td>`).join('')}
     <td class="num">${r.cur == null ? '<span class="muted">–</span>' : `${r.cur}${r.curLive ? '<span class="muted">*</span>' : ''}`}</td>
-    <td class="num"><b>${r.total}</b></td><td class="num muted">${r.rank === 1 ? '—' : '−' + (T.leader - r.total)}</td><td class="num pc">${pctile(r.rank, T.n)}</td></tr>`;
+    ${showLeft ? `<td class="num left-cell">${r.left == null ? '<span class="muted">–</span>' : r.left ? `${r.left} <span class="muted">· ${r.inPlay}</span>` : '<span class="muted">0</span>'}</td>` : ''}
+    <td class="num"><b>${withMode ? r.withCur : r.total}</b></td><td class="num muted">${withMode ? (r.withCur === leadWith ? '—' : '−' + (leadWith - r.withCur)) : r.rank === 1 ? '—' : '−' + (T.leader - r.total)}</td><td class="num pc">${pctile(r.rank, T.n)}</td></tr>`;
   const ghost = `<tr class="ghost row" style="--c:${sh.f.color}" data-member="tarun"><td>—</td><td class="l nm-cell">${avatar(sh.f)} Shadow card <span class="shadow-tag">unofficial</span></td>
-    ${sh.weeks.map(v => `<td class="num wk">${v ?? '–'}</td>`).join('')}<td class="num">${sh.cur ?? '–'}<span class="muted">*</span></td><td class="num">${sh.total}</td><td class="muted">since W${sh.since}</td><td class="pc"></td></tr>`;
+    ${sh.weeks.map(v => `<td class="num wk">${v ?? '–'}</td>`).join('')}<td class="num">${sh.cur ?? '–'}<span class="muted">*</span></td>${showLeft ? '<td></td>' : ''}<td class="num">${withMode ? sh.total + (sh.cur || 0) : sh.total}</td><td class="muted">since W${sh.since}</td><td class="pc"></td></tr>`;
 
   const fams = T.rows.filter(r => r.f);
   const cols = Array.from({ length: T.weeks }, (_, w) => T.rows.map(r => r.weeks[w]));
@@ -703,7 +722,9 @@ function viewStandings() {
   $('#main').innerHTML = `${title('League standings', `${T.n} entries · through week ${T.weeks}${S.week.picks ? ` · W${cw} column is live for the picks we have*` : ''}`)}
     <div class="filters"><button class="chip ${S.famOnly ? 'on' : ''}" id="fOnly">Family only</button><button class="chip ${!S.famOnly ? 'on' : ''}" id="fAll">Whole league</button>
       <input class="search" id="srch" placeholder="Search a name…" value="${esc(S.search)}"></div>
-    <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th class="wk">${c}</th>`).join('')}<th>W${cw}</th><th>Total</th><th>Back</th><th class="pc">Pctl</th></tr></thead>
+    <div class="filters sort-row"><span class="muted sort-lbl">Sort by</span>${Object.entries(STAND_SORTS).map(([k, v]) => `<button class="chip ${sort === k ? 'on' : ''}" data-sort="${k}">${v.replace('W#', 'W' + cw)}</button>`).join('')}</div>
+    ${sort !== 'season' ? `<div class="note" style="margin:-4px 0 8px">Sorted by ${{ week: `week ${cw} points so far`, left: `games still to play in week ${cw} (then the points riding on them)`, withweek: `season total plus week ${cw} so far` }[sort]}. # is still the season rank.</div>` : ''}
+    <div class="panel tbl-wrap"><table><thead><tr><th>#</th><th class="l">Name</th>${wkCols.map(c => `<th class="wk">${c}</th>`).join('')}<th class="sortable" data-sort="week" title="Sort by this week">W${cw}</th>${showLeft ? '<th class="sortable" data-sort="left" title="Games left · points still in play">Left</th>' : ''}<th class="sortable" data-sort="season" title="Sort by season rank">${withMode ? `Total+W${cw}` : 'Total'}</th><th>Back</th><th class="pc">Pctl</th></tr></thead>
       <tbody>${rows.map(tr).join('')}${S.famOnly || !q ? ghost : ''}</tbody></table></div>
     <div class="note">*Live week-${cw} points from ESPN, for entries whose picks are loaded. Official weekly scores replace them once the commissioner posts totals.</div>
     ${aroundTheLeague()}
@@ -721,6 +742,7 @@ function viewStandings() {
       <div class="panel chart">${familyCup(T)}</div>
       ${familyVsLeagueHistory(T)}
     </div>`;
+  $$('[data-sort]').forEach(b => b.onclick = e => { e.stopPropagation(); S.standSort = b.dataset.sort; try { localStorage.setItem('sp.standSort', S.standSort); } catch { /* this visit only */ } viewStandings(); });
   $('#fOnly').onclick = () => { S.famOnly = true; viewStandings(); }; $('#fAll').onclick = () => { S.famOnly = false; viewStandings(); };
   $('#srch').oninput = e => { S.search = e.target.value; S.famOnly = S.famOnly && !S.search; viewStandings(); const s = $('#srch'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); };
   $$('tr.row').forEach(tr => tr.onclick = () => tr.dataset.member ? openMember(tr.dataset.member) : famOf(tr.dataset.name) ? openMember(famOf(tr.dataset.name).key) : openProfile(tr.dataset.name));

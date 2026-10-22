@@ -583,3 +583,9 @@ nav.tabs button.pulse .tab-badge { animation: tabpulse 1.6s ease-out 3; }
 .void-tag { color: var(--rust); font-weight: 700; letter-spacing: .04em; }
 .score.void-tag { font-size: 14px; }
 .cf.void { background: var(--panel-2); color: var(--ink-3); text-decoration: line-through; }
+
+/* Standings sort row and sortable headers */
+.sort-row { align-items: center; }
+.sort-lbl { font-size: 12px; margin-right: 2px; }
+th.sortable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+td.left-cell { white-space: nowrap; }
