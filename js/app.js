@@ -969,7 +969,10 @@ function insights(E) {
   const withModel = all.map(r => ({ ...r, m: S.week.research?.[r.side === 'fav' ? r.g.fav_no : r.g.dog_no] })).filter(r => r.m && !r.m.noMarket);
   const modelFav = [...withModel].sort((a, b) => b.m.p - a.m.p)[0], modelHate = [...withModel].sort((a, b) => a.m.p - b.m.p)[0];
   const early = all.filter(r => new Date(r.g.espn.kickoff) < new Date(S.week.games.find(g => g.day === 'Saturday')?.espn?.kickoff || 0)).sort((a, b) => b.conf - a.conf)[0];
-  out.push(card('🎯', 'Boldest confidence', `${esc(top.e.f.short)} put <b>${top.conf}</b> on ${esc(sideName(top.g, top.side))} ${sideSpread(top.g, top.side)}${top.st.state !== 'pre' ? `: currently <b>${top.status}</b>` : ''}.`, top.g.fav_no));
+  // Everyone with the same top pick shares the card (otherwise the first one listed wins the tie).
+  const topNames = all.filter(r => r.conf === top.conf && r.g.fav_no === top.g.fav_no && r.side === top.side).map(r => esc(r.e.f.short));
+  const topWho = topNames.length > 2 ? `${topNames.slice(0, -1).join(', ')} and ${topNames.at(-1)}` : topNames.join(' and ');
+  out.push(card('🎯', 'Boldest confidence', `${topWho} ${topNames.length > 1 ? 'each ' : ''}put <b>${top.conf}</b> on ${esc(sideName(top.g, top.side))} ${sideSpread(top.g, top.side)}${top.st.state !== 'pre' ? `: currently <b>${top.status}</b>` : ''}.`, top.g.fav_no));
   if (biggestDog) out.push(card('🐕', 'Boldest underdog pick', `${esc(biggestDog.e.f.short)} is taking ${esc(sideName(biggestDog.g, 'dog'))} +${fmtHalf(biggestDog.g.spread)} for ${biggestDog.conf} points.`, biggestDog.g.fav_no));
   if (popular && popular.length > 1) out.push(card('🤝', 'Family consensus', `${popular.map(r => esc(r.e.f.short)).join(', ')} all have ${esc(sideName(popular[0].g, popular[0].side))} ${sideSpread(popular[0].g, popular[0].side)}.`, popular[0].g.fav_no));
   if (lonely) out.push(card('🏝️', 'Loneliest pick', `Only ${esc(lonely.e.f.short)} is on ${esc(sideName(lonely.g, lonely.side))} (${lonely.conf} pts).`, lonely.g.fav_no));
