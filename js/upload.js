@@ -51,12 +51,20 @@ export function parsePickRows(rows, week, fileName = 'file') {
     const name = cleanName(raw);
     const filled = Object.values(confCol).some(i => String(r[i] ?? '').trim() !== '');
     if (!name && !filled) continue;                     // blank row
+    // The sheet repeats its title and header on every printed page ("Week #10 Pool Picks Continued", "Name 10 9 ... 1").
+    if (!filled && /pool\s*picks/i.test(name)) continue;
+    if (/^name$/i.test(name) && Object.entries(confCol).every(([c, i]) => Number(r[i]) === Number(c))) continue;
     const e = { name, conf: {}, tiebreaker: null, errors: [], warnings: [], file: fileName };
     if (!isName(name)) e.errors.push(`row has picks but no valid name ("${raw.slice(0, 30)}")`);
     if (name && raw.trim() !== name) e.warnings.push('name had odd characters that were removed');
     const gamesUsed = new Map();
     for (let c = 10; c >= 1; c--) {
-      const v = toInt(r[confCol[c]]);
+      let v = toInt(r[confCol[c]]);
+      // "1 4 1": digits typed with spaces. Read as 141 if that's on the sheet, and say so.
+      const spaced = String(r[confCol[c]] ?? '').trim();
+      if (Number.isNaN(v) && /^\d(\s+\d)+$/.test(spaced) && side.has(Number(spaced.replace(/\s+/g, '')))) {
+        v = Number(spaced.replace(/\s+/g, '')); e.warnings.push(`confidence ${c}: "${spaced}" read as #${v}`);
+      }
       if (v == null) { e.errors.push(`no pick for confidence ${c}`); continue; }
       if (Number.isNaN(v)) { e.errors.push(`confidence ${c}: "${String(r[confCol[c]]).slice(0, 12)}" isn't a pool number`); continue; }
       if (!side.has(v)) { e.errors.push(`confidence ${c}: #${v} isn't on this week's sheet`); continue; }
